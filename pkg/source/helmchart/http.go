@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
@@ -55,9 +56,13 @@ func (f *Fetcher) fetchHTTPChart(ctx context.Context, r *manifest.HelmRepository
 		if err != nil {
 			return desc, err
 		}
+		// source-controller does not check the index digest (DownloadChart only
+		// GETs the URL), so a stale index entry still reconciles in-cluster;
+		// warn instead of failing a chart Flux would install.
 		expected := normalizeChartDigest(cv.Digest)
 		if expected != "" && desc.Digest.Encoded() != expected {
-			return desc, fmt.Errorf("chart %s@%s digest mismatch: index has %s, downloaded %s", chartName, cv.Version, expected, desc.Digest.Encoded())
+			slog.Warn("helmchart: chart digest differs from the repository index; using the downloaded chart like Flux",
+				"chart", chartName+"@"+cv.Version, "index", expected, "downloaded", desc.Digest.Encoded())
 		}
 		desc.Annotations = map[string]string{"flate.chart-version": cv.Version, "flate.chart-url": chartURL, "flate.chart-digest": expected}
 		return desc, nil

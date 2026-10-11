@@ -174,8 +174,12 @@ func (c *Controller) reconcile(ctx context.Context, obj manifest.BaseManifest, l
 		c.Tasks.YieldSlot(func() {
 			artifact, fetchErr = missing.RetryWithRegistryConfig(ctx, missing.RegistryConfig)
 		})
-		// An optional registry retry MUST preserve --allow-missing-secrets skips.
-		if fetchErr != nil && c.allowMissingSecrets {
+		// An optional registry retry MUST preserve --allow-missing-secrets skips,
+		// except for an explicit --registry-config: credentials the user supplied
+		// for this registry and the registry rejected are a broken input, not a
+		// Secret that only exists live, and skipping would drop every object
+		// the source feeds with exit 0.
+		if fetchErr != nil && c.allowMissingSecrets && missing.RegistryConfig == "" {
 			fetchErr = missing
 		}
 	}

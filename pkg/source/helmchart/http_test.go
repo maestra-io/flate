@@ -115,13 +115,19 @@ func TestFetchIndex_InvalidResponseDoesNotPublish(t *testing.T) {
 	}
 }
 
+// A stale index digest does not fail the chart: source-controller never
+// checks it, so the downloaded chart is what the cluster installs.
 func TestFetchHTTPChart_DigestMismatch(t *testing.T) {
 	chartBytes := buildChartTarGz(t, "app-template", "1.0.0")
 	srv, _ := startHelmRepo(t, chartBytes, "deadbeefdeadbeef") // index advertises a wrong digest
 	f := newHTTPFetcher(t, httpRepo(srv.URL))
 
-	if _, err := f.Fetch(context.Background(), helmChart("repo", "app-template", "1.0.0")); err == nil {
-		t.Fatal("expected digest-mismatch error, got nil")
+	art, err := f.Fetch(t.Context(), helmChart("repo", "app-template", "1.0.0"))
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if art.Digest != chartDigest(chartBytes) {
+		t.Errorf("art.Digest = %q, want the downloaded chart's %q", art.Digest, chartDigest(chartBytes))
 	}
 }
 

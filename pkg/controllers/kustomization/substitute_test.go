@@ -125,6 +125,23 @@ func TestSubstituteDoc_EscapedDollarKey(t *testing.T) {
 	}
 }
 
+// A `$$` escape with no `${` anywhere in the doc still unescapes, because
+// Flux runs envsubst over every resource of a Kustomization with postBuild
+// variables: `$$(cat file)` in a container arg reaches the cluster as
+// `$(cat file)`.
+func TestSubstituteDoc_EscapedDollarWithoutBrace(t *testing.T) {
+	doc := map[string]any{
+		"args": []any{`PGUSER="$$(cat /etc/db/username)"`},
+	}
+	out, err := substituteDoc(doc, map[string]string{"CLUSTER_NAME": "c"}, false)
+	if err != nil {
+		t.Fatalf("substituteDoc: %v", err)
+	}
+	if got, want := out["args"].([]any)[0], `PGUSER="$(cat /etc/db/username)"`; got != want {
+		t.Errorf("args[0] = %q, want %q", got, want)
+	}
+}
+
 // When a key-position substitution makes two sibling keys collide, the
 // re-decode hits a duplicate key. go.yaml.in/yaml/v4 fails loudly on
 // that rather than silently last-wins, so substituteDoc surfaces it as
