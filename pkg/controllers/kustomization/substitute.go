@@ -24,9 +24,11 @@ import (
 // envsubst runs over the serialized YAML text, so a `${VAR}` in key
 // position (e.g. `${OP_VAULT}: 1`) substitutes just like one in value
 // position. Gating on values alone would skip a key-only reference and
-// leave the var literal — a flate-only divergence from Flux.
+// leave the var literal — a flate-only divergence from Flux. `$$` gates
+// too: envsubst unescapes it to `$` even with no `${` in the doc
+// (`$$(cat file)` in a shell arg reaches the cluster as `$(cat file)`).
 func substituteDoc(doc map[string]any, vars map[string]string, strict bool) (map[string]any, error) {
-	if !manifest.AnyStringNode(doc, func(s string) bool { return strings.Contains(s, "${") }) {
+	if !manifest.AnyStringNode(doc, func(s string) bool { return strings.Contains(s, "${") || strings.Contains(s, "$$") }) {
 		return doc, nil
 	}
 	raw, err := yaml.Marshal(doc)
