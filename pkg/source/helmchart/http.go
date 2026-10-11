@@ -61,7 +61,7 @@ func (f *Fetcher) fetchHTTPChart(ctx context.Context, r *manifest.HelmRepository
 		// warn instead of failing a chart Flux would install.
 		expected := normalizeChartDigest(cv.Digest)
 		if expected != "" && desc.Digest.Encoded() != expected {
-			slog.Warn("helm chart digest differs from the repository index; using the downloaded chart like Flux",
+			slog.Warn("helmchart: chart digest differs from the repository index; using the downloaded chart like Flux",
 				"chart", chartName+"@"+cv.Version, "index", expected, "downloaded", desc.Digest.Encoded())
 		}
 		desc.Annotations = map[string]string{"flate.chart-version": cv.Version, "flate.chart-url": chartURL, "flate.chart-digest": expected}
