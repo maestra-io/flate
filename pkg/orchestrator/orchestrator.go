@@ -103,6 +103,9 @@ type Config struct {
 	// because the cluster installs them at runtime, and reports each missing CRD
 	// with its dependent ResourceSets.
 	AllowMissingCRDs bool
+	// SkipExternalArtifacts soft-skips HelmReleases whose chartRef is an
+	// ExternalArtifact, which only a live controller publishes.
+	SkipExternalArtifacts bool
 
 	// ForceGenericProvider sends non-generic spec.provider sources
 	// (GitRepository, OCIRepository, Bucket) down the generic SecretRef path

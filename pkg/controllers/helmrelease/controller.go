@@ -37,8 +37,9 @@ type Controller struct {
 
 	// allowMissingSecrets extends the source-controller flag to
 	// HelmRelease valuesFrom refs that cannot be resolved offline.
-	allowMissingSecrets bool
-	substitutionSources map[manifest.NamedResource]manifest.BaseManifest
+	allowMissingSecrets   bool
+	skipExternalArtifacts bool
+	substitutionSources   map[manifest.NamedResource]manifest.BaseManifest
 
 	// producers is the orchestrator-owned producer index, shared with the
 	// source controller. It maps a target Secret to the in-repo
@@ -63,6 +64,9 @@ type ReconcileOptions struct {
 	// AllowMissingSecrets omits non-optional valuesFrom refs that point
 	// at known live-cluster/generated data or fail to materialize offline.
 	AllowMissingSecrets bool
+	// SkipExternalArtifacts soft-skips a release whose chartRef is an
+	// ExternalArtifact instead of failing it on the missing source.
+	SkipExternalArtifacts bool
 	// Producers is the orchestrator-owned producer index (ExternalSecret /
 	// SealedSecret target → producer), shared with the source controller. A
 	// valuesFrom Secret with a declared producer is omitted even without
@@ -88,6 +92,7 @@ func New(s *store.Store, t *task.Service, h *helm.Client, opts helm.Options, wip
 func (c *Controller) Configure(opts ReconcileOptions) {
 	c.Controller.Configure(opts.Options)
 	c.allowMissingSecrets = opts.AllowMissingSecrets
+	c.skipExternalArtifacts = opts.SkipExternalArtifacts
 	c.producers = opts.Producers
 	c.substitutionSources = opts.SubstituteFrom
 }
@@ -401,6 +406,9 @@ func chartSourceID(hr *manifest.HelmRelease) manifest.NamedResource {
 // waited for by OUTCOME instead of dropped.
 func (c *Controller) awaitChartSource(ctx context.Context, hr *manifest.HelmRelease, level manifest.DrainLevel) error {
 	srcID := chartSourceID(hr)
+	if c.skipExternalArtifacts && srcID.Kind == manifest.KindExternalArtifact {
+		return fmt.Errorf("%w: chart source %s (--skip-external-artifacts)", manifest.ErrSourceSkipped, srcID.String())
+	}
 	if err := c.Require(ctx, hr.Named(), []manifest.DependencyRef{{NamedResource: srcID}}, level); err != nil {
 		return err
 	}

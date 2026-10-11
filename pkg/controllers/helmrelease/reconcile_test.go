@@ -2,6 +2,7 @@ package helmrelease
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -174,6 +175,29 @@ func TestReconcile_ChartSourceNotReady(t *testing.T) {
 	}
 	if info.Message != "dependencies failed: "+src.Named().String()+": not ready" || !slices.Equal(info.BlockedBy(), []manifest.NamedResource{src.Named()}) {
 		t.Errorf("chart failure = %+v; blockers = %v", info, info.BlockedBy())
+	}
+}
+
+// A chartRef to an ExternalArtifact, which only a live controller publishes,
+// fails on the missing source by default and soft-skips under
+// --skip-external-artifacts.
+func TestReconcile_ExternalArtifactChartRef(t *testing.T) {
+	for _, skip := range []bool{false, true} {
+		t.Run(fmt.Sprintf("skip=%t", skip), func(t *testing.T) {
+			c, st := newTestControllerWithOptions(t, ReconcileOptions{SkipExternalArtifacts: skip})
+			hr := &manifest.HelmRelease{
+				Name: "app", Namespace: "apps",
+				Chart: manifest.HelmChart{RepoKind: manifest.KindExternalArtifact, RepoName: "app-chart", RepoNamespace: "apps"},
+			}
+			st.AddObject(hr)
+			info := dispatchToFixpoint(t, c, st, hr.Named())
+			if skip && (info.Status != store.StatusReady || !store.IsSkipped(info) || !strings.Contains(info.Message, "ExternalArtifact/apps/app-chart")) {
+				t.Fatalf("status = %+v, want Ready with a skip naming the ExternalArtifact", info)
+			}
+			if !skip && info.Status != store.StatusFailed {
+				t.Fatalf("status = %+v, want Failed", info)
+			}
+		})
 	}
 }
 

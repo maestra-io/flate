@@ -40,26 +40,27 @@ type commonFlags struct {
 	// The materialized --base tree carries no .git, so its source root
 	// is threaded explicitly. Snapshots without .git use the live tree's
 	// remote URLs for self-referential aliasing.
-	pathOrigRoot         string
-	pathOrigSelfURLs     []string
-	krmIgnore            string
-	base                 string
-	namespace            string
-	skipCRDs             bool
-	skipSecrets          bool
-	substituteFrom       []string
-	substitute           []string
-	strictSubstitutions  bool
-	substitutionSources  []orchestrator.SubstitutionSource
-	substitutionValues   map[string]string
-	allowMissingSecrets  bool
-	allowMissingCRDs     bool
-	forceGenericProvider bool
-	restrictEgress       bool
-	skipKinds            []string
-	output               string
-	registryConfig       string
-	concurrency          int
+	pathOrigRoot          string
+	pathOrigSelfURLs      []string
+	krmIgnore             string
+	base                  string
+	namespace             string
+	skipCRDs              bool
+	skipSecrets           bool
+	substituteFrom        []string
+	substitute            []string
+	strictSubstitutions   bool
+	substitutionSources   []orchestrator.SubstitutionSource
+	substitutionValues    map[string]string
+	allowMissingSecrets   bool
+	allowMissingCRDs      bool
+	skipExternalArtifacts bool
+	forceGenericProvider  bool
+	restrictEgress        bool
+	skipKinds             []string
+	output                string
+	registryConfig        string
+	concurrency           int
 	// sourceRetry* tune the bounded retry applied uniformly to every source
 	// fetch on transient network errors. attempts is the total tries (first +
 	// retries); 1 disables. min/max bound the exponential backoff and jitter
@@ -136,6 +137,9 @@ func bindCommon(fs *pflag.FlagSet, f *commonFlags, outputs ...format.Output) {
 			"that only materialize in the live cluster. Usually unnecessary: a missing Secret "+
 			"declared by an in-repo ExternalSecret/SealedSecret (with a static target name) is "+
 			"auto-skipped without this flag. cert/proxy secretRefs still fail loud.")
+	fs.BoolVar(&f.skipExternalArtifacts, "skip-external-artifacts", false,
+		"soft-skip HelmReleases whose spec.chartRef is an ExternalArtifact (published live by "+
+			"a third-party controller such as source-watcher's ArtifactGenerator) instead of failing them")
 	fs.BoolVar(&f.forceGenericProvider, "force-generic-provider", false,
 		"route non-generic spec.provider sources (GitRepository/OCIRepository/Bucket) "+
 			"through the generic credential path instead of failing. With a secretRef, "+
@@ -488,6 +492,7 @@ func buildOrchCfg(c commonFlags, h helmFlags) orchestrator.Config {
 		StrictSubstitutions:       c.strictSubstitutions,
 		AllowMissingSecrets:       c.allowMissingSecrets,
 		AllowMissingCRDs:          c.allowMissingCRDs,
+		SkipExternalArtifacts:     c.skipExternalArtifacts,
 		ForceGenericProvider:      c.forceGenericProvider,
 		RestrictEgress:            c.restrictEgress,
 		CacheDir:                  c.resolveCacheRoot(),
