@@ -1,0 +1,55 @@
+name: Maestra Release
+
+# Builds and publishes a fork release on a `v*-maestra.*` tag (see MAESTRA.md).
+# Asset names and checksums.txt follow goreleaser's layout so consumers pin a
+# version plus sha256 the same way as for upstream releases.
+
+on:
+  push:
+    tags: ["v*-maestra.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: build + publish
+    runs-on: runs-on=${{ github.run_id }}/pool=build
+    steps:
+      - uses: runs-on/action@v2
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+          TAG: ${{ github.ref_name }}
+        run: |
+          version=${TAG#v}
+          mkdir dist
+          for target in linux/amd64 darwin/arm64; do
+            os=${target%/*} arch=${target#*/}
+            name="flate_${version}_${os}_${arch}"
+            mkdir "dist/$name"
+            GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w -X main.version=${version}" \
+              -o "dist/$name/flate" ./cmd/flate
+            cp LICENSE README.md MAESTRA.md "dist/$name/"
+            tar -C "dist/$name" -czf "dist/$name.tar.gz" .
+          done
+          (cd dist && sha256sum ./*.tar.gz | sed 's| \./| |' > "flate_${version}_checksums.txt")
+          cat "dist/flate_${version}_checksums.txt"
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "$TAG" --notes "Maestra build of flate $TAG from maestra/main. See MAESTRA.md." \
+            dist/*.tar.gz dist/*_checksums.txt
