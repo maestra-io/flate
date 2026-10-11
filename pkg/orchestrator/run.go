@@ -130,11 +130,10 @@ func (o *Orchestrator) configureControllers() {
 		StrictSubstitutions: o.cfg.StrictSubstitutions,
 	})
 	o.hrc.Configure(helmrelease.ReconcileOptions{
-		Options:               common,
-		AllowMissingSecrets:   o.cfg.AllowMissingSecrets,
-		SkipExternalArtifacts: o.cfg.SkipExternalArtifacts,
-		Producers:             o.producers,
-		SubstituteFrom:        o.substitutionSources,
+		Options:             common,
+		AllowMissingSecrets: o.cfg.AllowMissingSecrets,
+		Producers:           o.producers,
+		SubstituteFrom:      o.substitutionSources,
 	})
 	// The RS controller feeds each RawObject child it renders into
 	// rsRawSink keyed by the RS's parent KS; render() commits the sink

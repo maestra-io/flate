@@ -78,8 +78,6 @@ Every reconcile-running command takes `--path <dir>` (default `.`); `--path-orig
 
 `--allow-missing-crds` (default off; `FLATE_ALLOW_MISSING_CRDS`) accepts CRD dependencies that are absent from the offline inputs because the cluster installs them at runtime.
 
-`--skip-external-artifacts` (default off; `FLATE_SKIP_EXTERNAL_ARTIFACTS`) soft-skips HelmReleases whose `spec.chartRef` is an `ExternalArtifact`, which only a live controller (for example source-watcher's `ArtifactGenerator`) publishes, instead of failing them.
-
 **Build substitution inputs.** These options also work with `get`, `test`, and both sides of `diff`.
 
 | Flag                                    | Environment                                    | Behavior                                                                                                                                          |

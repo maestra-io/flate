@@ -37,9 +37,8 @@ type Controller struct {
 
 	// allowMissingSecrets extends the source-controller flag to
 	// HelmRelease valuesFrom refs that cannot be resolved offline.
-	allowMissingSecrets   bool
-	skipExternalArtifacts bool
-	substitutionSources   map[manifest.NamedResource]manifest.BaseManifest
+	allowMissingSecrets bool
+	substitutionSources map[manifest.NamedResource]manifest.BaseManifest
 
 	// producers is the orchestrator-owned producer index, shared with the
 	// source controller. It maps a target Secret to the in-repo
@@ -64,9 +63,6 @@ type ReconcileOptions struct {
 	// AllowMissingSecrets omits non-optional valuesFrom refs that point
 	// at known live-cluster/generated data or fail to materialize offline.
 	AllowMissingSecrets bool
-	// SkipExternalArtifacts soft-skips a release whose chartRef is an
-	// ExternalArtifact instead of failing it on the missing source.
-	SkipExternalArtifacts bool
 	// Producers is the orchestrator-owned producer index (ExternalSecret /
 	// SealedSecret target → producer), shared with the source controller. A
 	// valuesFrom Secret with a declared producer is omitted even without
@@ -92,7 +88,6 @@ func New(s *store.Store, t *task.Service, h *helm.Client, opts helm.Options, wip
 func (c *Controller) Configure(opts ReconcileOptions) {
 	c.Controller.Configure(opts.Options)
 	c.allowMissingSecrets = opts.AllowMissingSecrets
-	c.skipExternalArtifacts = opts.SkipExternalArtifacts
 	c.producers = opts.Producers
 	c.substitutionSources = opts.SubstituteFrom
 }
@@ -404,10 +399,16 @@ func chartSourceID(hr *manifest.HelmRelease) manifest.NamedResource {
 // gated via Require: an unready source classifies as blocked, so the scheduler
 // parks this node and re-runs it when the fetch completes — a slow fetch is
 // waited for by OUTCOME instead of dropped.
+//
+// An ExternalArtifact that only an in-repo producer (source-watcher's
+// ArtifactGenerator) publishes in-cluster cannot exist offline: the release is
+// soft-skipped, as a source with a producer-backed auth Secret is.
 func (c *Controller) awaitChartSource(ctx context.Context, hr *manifest.HelmRelease, level manifest.DrainLevel) error {
 	srcID := chartSourceID(hr)
-	if c.skipExternalArtifacts && srcID.Kind == manifest.KindExternalArtifact {
-		return fmt.Errorf("%w: chart source %s (--skip-external-artifacts)", manifest.ErrSourceSkipped, srcID.String())
+	if srcID.Kind == manifest.KindExternalArtifact && c.Store.GetObject(srcID) == nil {
+		if producer, ok := c.producers.Producer(srcID); ok {
+			return fmt.Errorf("%w: chart source %s is published in-cluster by %s", manifest.ErrSourceSkipped, srcID.String(), producer.String())
+		}
 	}
 	if err := c.Require(ctx, hr.Named(), []manifest.DependencyRef{{NamedResource: srcID}}, level); err != nil {
 		return err
