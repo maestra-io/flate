@@ -315,7 +315,8 @@ func TestFinalizeIndex_EmissionParentByFile(t *testing.T) {
 // A cluster-apps whose spec.path is the cluster root does not own the
 // flux-system/ Kustomizations beside it when the root kustomization.yaml does
 // not list flux-system: its dependsOn on them must not become a parent cycle.
-// The same layout with flux-system listed keeps cluster-apps as the parent.
+// The same layout with flux-system listed, or one file of it reached through
+// an escaping ref, keeps cluster-apps as the parent.
 func TestFinalizeIndex_PrefixParentNeedsGraphReach(t *testing.T) {
 	for _, tc := range []struct {
 		name, resources string
@@ -323,11 +324,17 @@ func TestFinalizeIndex_PrefixParentNeedsGraphReach(t *testing.T) {
 	}{
 		{"unlisted", "resources:\n  - ./app\n", false},
 		{"listed", "resources:\n  - ./app\n  - ./flux-system\n", true},
+		// kustomize-controller builds with LoadRestrictionsNone, so a file
+		// reached by an escaping ref is applied by the claimant too.
+		{"listed through an escaping file ref", "resources:\n  - ./app\n", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			testutil.WriteFile(t, dir, "clusters/main/kustomization.yaml", tc.resources)
 			testutil.WriteFile(t, dir, "clusters/main/app/cm.yaml", "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: app\n")
+			if tc.name == "listed through an escaping file ref" {
+				testutil.WriteFile(t, dir, "clusters/main/app/kustomization.yaml", "resources:\n  - cm.yaml\n  - ../flux-system/infra.yaml\n")
+			}
 			testutil.WriteFile(t, dir, "clusters/main/flux-system/kustomization.yaml", "resources:\n  - infra.yaml\n")
 			testutil.WriteFile(t, dir, "clusters/main/flux-system/infra.yaml",
 				"apiVersion: kustomize.toolkit.fluxcd.io/v1\nkind: Kustomization\nmetadata:\n  name: infra\n  namespace: flux-system\nspec:\n  path: ./infra\n")

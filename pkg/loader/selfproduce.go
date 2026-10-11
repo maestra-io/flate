@@ -76,7 +76,9 @@ func (l *Loader) buildRenderers(repoRoot string, producers *manifest.ProducerInd
 			}
 			// The prefix claimant's kustomization.yaml does not reach this file, so
 			// Flux never applies it from there: a cluster-apps at the cluster root
-			// does not own the flux-system/ Kustomizations it dependsOn.
+			// does not own the flux-system/ Kustomizations it dependsOn. Readers,
+			// not readable visits: kustomize-controller builds with
+			// LoadRestrictionsNone, so a file reached by an escaping ref is applied.
 			r.Parent = manifest.NamedResource{}
 		}
 		if parents := b.emittedFiles[r.File]; len(parents) == 1 && parents[0] != id {
