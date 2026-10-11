@@ -32,8 +32,14 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Test
-        run: go test -race ./...
+      # pkg/orchestrator's DAG tests render under a 10s deadline. On this
+      # 8-vCPU t3a they take ~6s alone and time out when every package
+      # runs in parallel under -race, so they get the runner to themselves.
+      - name: Test pkg/orchestrator
+        run: go test -race ./pkg/orchestrator/
+
+      - name: Test the rest
+        run: go test -race $(go list ./... | grep -v '/pkg/orchestrator$')
 
       - name: Build
         env:
