@@ -13,3 +13,5 @@ git checkout maestra/main && git merge main && git push origin maestra/main
 
 Merge, not rebase: `maestra/main` is the default branch with open PRs on it; a rebase would force-push it and invalidate every branch cut from it.
 Changes meant for upstream: branch from `main`, cherry-pick, open the PR against home-operations/flate.
+
+Release: annotated tag `v<upstream>-maestra.<n>` on `maestra/main` (`git tag -a v0.6.5-maestra.1 -m ... && git push origin v0.6.5-maestra.1`); `maestra-release.yml` publishes linux/amd64 + darwin/arm64 tarballs and `flate_<version>_checksums.txt`.
