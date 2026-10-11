@@ -61,6 +61,10 @@ type ProducerTarget struct {
 //     ConfigMap the bucket connection info (BUCKET_HOST / BUCKET_PORT /
 //     BUCKET_NAME); a consuming HelmRelease valuesFrom (or substituteFrom)
 //     references them by the claim's name and neither exists in the offline tree.
+//   - ArtifactGenerator (source.extensions.fluxcd.io, source-watcher): one
+//     ExternalArtifact per spec.artifacts[].name, declaring no keys. A
+//     HelmRelease chartRef to one is skipped offline, since only the live
+//     controller publishes the artifact.
 //
 // Every target lands in the producer's namespace.
 //
@@ -88,6 +92,12 @@ func ProducerTargets(raw *RawObject) []ProducerTarget {
 		return []ProducerTarget{raw.secret(name, spec.mapKeys("encryptedData"))}
 	case "ObjectBucketClaim":
 		return []ProducerTarget{raw.secret(raw.Name, nil), raw.target(KindConfigMap, raw.Name, nil)}
+	case "ArtifactGenerator":
+		var targets []ProducerTarget
+		for _, name := range spec.entryKeys("artifacts", "name") {
+			targets = append(targets, raw.target(KindExternalArtifact, name, nil))
+		}
+		return targets
 	default:
 		return nil
 	}

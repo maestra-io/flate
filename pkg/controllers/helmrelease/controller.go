@@ -399,8 +399,17 @@ func chartSourceID(hr *manifest.HelmRelease) manifest.NamedResource {
 // gated via Require: an unready source classifies as blocked, so the scheduler
 // parks this node and re-runs it when the fetch completes — a slow fetch is
 // waited for by OUTCOME instead of dropped.
+//
+// An ExternalArtifact that only an in-repo producer (source-watcher's
+// ArtifactGenerator) publishes in-cluster cannot exist offline: the release is
+// soft-skipped, as a source with a producer-backed auth Secret is.
 func (c *Controller) awaitChartSource(ctx context.Context, hr *manifest.HelmRelease, level manifest.DrainLevel) error {
 	srcID := chartSourceID(hr)
+	if srcID.Kind == manifest.KindExternalArtifact && c.Store.GetObject(srcID) == nil {
+		if producer, ok := c.producers.Producer(srcID); ok {
+			return fmt.Errorf("%w: chart source %s is published in-cluster by %s", manifest.ErrSourceSkipped, srcID.String(), producer.String())
+		}
+	}
 	if err := c.Require(ctx, hr.Named(), []manifest.DependencyRef{{NamedResource: srcID}}, level); err != nil {
 		return err
 	}

@@ -2,6 +2,7 @@ package helmrelease
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -174,6 +175,36 @@ func TestReconcile_ChartSourceNotReady(t *testing.T) {
 	}
 	if info.Message != "dependencies failed: "+src.Named().String()+": not ready" || !slices.Equal(info.BlockedBy(), []manifest.NamedResource{src.Named()}) {
 		t.Errorf("chart failure = %+v; blockers = %v", info, info.BlockedBy())
+	}
+}
+
+// A chartRef to an ExternalArtifact that an in-repo ArtifactGenerator
+// publishes in-cluster is soft-skipped offline; one with no producer fails on
+// the missing source.
+func TestReconcile_ExternalArtifactChartRef(t *testing.T) {
+	for _, produced := range []bool{false, true} {
+		t.Run(fmt.Sprintf("produced=%t", produced), func(t *testing.T) {
+			c, st := newTestController(t, nil)
+			if produced {
+				st.AddObject(&manifest.RawObject{
+					APIVersion: "source.extensions.fluxcd.io/v1beta1", Kind: "ArtifactGenerator",
+					Name: "charts", Namespace: "apps",
+					Spec: map[string]any{"artifacts": []any{map[string]any{"name": "app-chart"}}},
+				})
+			}
+			hr := &manifest.HelmRelease{
+				Name: "app", Namespace: "apps",
+				Chart: manifest.HelmChart{RepoKind: manifest.KindExternalArtifact, RepoName: "app-chart", RepoNamespace: "apps"},
+			}
+			st.AddObject(hr)
+			info := dispatchToFixpoint(t, c, st, hr.Named())
+			if produced && (info.Status != store.StatusReady || !store.IsSkipped(info) || !strings.Contains(info.Message, "ExternalArtifact/apps/app-chart")) {
+				t.Fatalf("status = %+v, want Ready with a skip naming the ExternalArtifact", info)
+			}
+			if !produced && info.Status != store.StatusFailed {
+				t.Fatalf("status = %+v, want Failed", info)
+			}
+		})
 	}
 }
 

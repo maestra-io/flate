@@ -74,6 +74,18 @@ func TestProducerTargets(t *testing.T) {
 			},
 		},
 		{
+			name: "ArtifactGenerator produces one ExternalArtifact per spec.artifacts[].name",
+			raw: &RawObject{Kind: "ArtifactGenerator", Namespace: "apps", Name: "charts",
+				Spec: map[string]any{"artifacts": []any{
+					map[string]any{"name": "app-chart"},
+					map[string]any{"name": "app-alerts-chart"},
+				}}},
+			want: []ProducerTarget{
+				{Kind: KindExternalArtifact, Namespace: "apps", Name: "app-alerts-chart"},
+				{Kind: KindExternalArtifact, Namespace: "apps", Name: "app-chart"},
+			},
+		},
+		{
 			name: "non-producer kind",
 			raw:  &RawObject{Kind: "Certificate", Namespace: "default", Name: "tls"},
 			want: nil,
