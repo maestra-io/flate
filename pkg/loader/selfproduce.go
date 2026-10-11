@@ -67,13 +67,38 @@ func (l *Loader) buildRenderers(repoRoot string, producers *manifest.ProducerInd
 		l.Store.AddObject(b.secrets[id])
 	}
 	for id, r := range l.Index.Files() {
-		if id.Kind == manifest.KindKustomization && r.Parent == (manifest.NamedResource{}) {
-			if parents := b.emittedFiles[r.File]; len(parents) == 1 && parents[0] != id {
-				r.Parent = parents[0]
-				l.Index.Records[id] = r
-			}
+		if id.Kind != manifest.KindKustomization {
+			continue
 		}
+		if r.Parent != (manifest.NamedResource{}) {
+			if slices.Contains(l.Index.Readers[r.File], r.Parent) || !l.listsResources(repoRoot, r.Parent) {
+				continue
+			}
+			// The prefix claimant's kustomization.yaml does not reach this file, so
+			// Flux never applies it from there: a cluster-apps at the cluster root
+			// does not own the flux-system/ Kustomizations it dependsOn.
+			r.Parent = manifest.NamedResource{}
+		}
+		if parents := b.emittedFiles[r.File]; len(parents) == 1 && parents[0] != id {
+			r.Parent = parents[0]
+		}
+		l.Index.Records[id] = r
 	}
+}
+
+// listsResources reports whether the local spec.path of Kustomization id holds a
+// kustomization.yaml, whose resource graph then decides what id applies.
+func (l *Loader) listsResources(repoRoot string, id manifest.NamedResource) bool {
+	ks, ok := l.Store.Get[*manifest.Kustomization](id)
+	if !ok {
+		return false
+	}
+	root, _, external := SourceView(l.Store, ks, repoRoot)
+	if external {
+		return false
+	}
+	d, _ := l.documents.read(filepath.Join(root, manifest.NormalizeClaimBase(ks.Path)))
+	return d != nil
 }
 
 func (l *Loader) unreachedGeneratorRoots(repoRoot string, remaining map[string]struct{}) []string {
