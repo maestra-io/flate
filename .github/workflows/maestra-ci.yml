@@ -1,0 +1,47 @@
+name: Maestra CI
+
+# go test + build on PRs into our default branch. Upstream's CI only targets
+# main, which in this fork is the untouched upstream mirror (see MAESTRA.md).
+
+on:
+  pull_request:
+    branches: [maestra/main]
+  push:
+    branches: [maestra/main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: maestra-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: go test + build
+    runs-on: runs-on=${{ github.run_id }}/pool=build
+    steps:
+      - uses: runs-on/action@v2
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: go test -race ./...
+
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+        run: go build -trimpath -ldflags "-s -w -X main.version=maestra-${GITHUB_SHA::8}" -o flate ./cmd/flate
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: flate-linux-${{ runner.arch }}
+          path: flate
+          retention-days: 14
