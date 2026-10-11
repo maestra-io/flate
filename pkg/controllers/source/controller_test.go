@@ -416,9 +416,10 @@ func TestController_UnavailableSecretAtFixpoint(t *testing.T) {
 // fallbackFetcher fails with a missing Secret until rendered is set, and
 // carries a registry-fallback retry.
 type fallbackFetcher struct {
-	rendered      bool
-	fallbackCalls int
-	fallbackErr   error
+	rendered       bool
+	fallbackCalls  int
+	fallbackErr    error
+	registryConfig string // "" selects Docker's default config
 }
 
 func (f *fallbackFetcher) Fetch(_ context.Context, _ manifest.BaseManifest) (*store.SourceArtifact, error) {
@@ -426,7 +427,7 @@ func (f *fallbackFetcher) Fetch(_ context.Context, _ manifest.BaseManifest) (*st
 		return &store.SourceArtifact{Kind: manifest.KindOCIRepository}, nil
 	}
 	missing, _ := errors.AsType[*src.MissingSecretError](src.MissingSecretErr(manifest.KindOCIRepository, "ns", "r", "ghcr-creds", "not found"))
-	missing.RegistryConfig = "/registry/config.json"
+	missing.RegistryConfig = f.registryConfig
 	missing.RetryWithRegistryConfig = func(_ context.Context, configPath string) (*store.SourceArtifact, error) {
 		f.fallbackCalls++
 		if configPath != missing.RegistryConfig {
@@ -507,20 +508,40 @@ func TestController_ProducerBackedSecretSkipsRegistryFallback(t *testing.T) {
 }
 
 func TestController_AllowMissingSecretsSkipsFailedRegistryFallback(t *testing.T) {
-	f := &fallbackFetcher{fallbackErr: fmt.Errorf("%w: registry authentication failed", manifest.ErrInput)}
-	c, st := newConfiguredController(t,
-		map[string]src.Fetcher{manifest.KindOCIRepository: f}, FetchOptions{AllowMissingSecrets: true})
-	repo := &manifest.OCIRepository{Name: "r", Namespace: "ns", URL: "oci://example/img"}
-	st.AddObject(repo)
+	tests := []struct {
+		name           string
+		registryConfig string
+		wantSkip       bool
+	}{
+		// Docker's default config is ambient state, not an input: keep the skip.
+		{name: "docker default config", wantSkip: true},
+		// An explicit --registry-config that covers the registry and fails is a
+		// broken input: fail loud instead of silently dropping the source.
+		{name: "explicit registry config", registryConfig: "/registry/config.json"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := &fallbackFetcher{fallbackErr: fmt.Errorf("%w: registry authentication failed", manifest.ErrInput),
+				registryConfig: tt.registryConfig}
+			c, st := newConfiguredController(t,
+				map[string]src.Fetcher{manifest.KindOCIRepository: f}, FetchOptions{AllowMissingSecrets: true})
+			repo := &manifest.OCIRepository{Name: "r", Namespace: "ns", URL: "oci://example/img"}
+			st.AddObject(repo)
 
-	if info := dispatchToFixpoint(t, c, st, repo.Named()); info.Status != store.StatusReady || !store.IsSkipped(info) {
-		t.Fatalf("status = %+v, want Ready with a skip", info)
-	}
-	if f.fallbackCalls != 1 {
-		t.Errorf("fallback calls = %d, want 1 before skipping", f.fallbackCalls)
-	}
-	if st.GetArtifact(repo.Named()) != nil {
-		t.Error("failed fallback must not store an artifact")
+			info := dispatchToFixpoint(t, c, st, repo.Named())
+			if tt.wantSkip && (info.Status != store.StatusReady || !store.IsSkipped(info)) {
+				t.Fatalf("status = %+v, want Ready with a skip", info)
+			}
+			if !tt.wantSkip && (info.Status != store.StatusFailed || !strings.Contains(info.Message, "registry authentication failed")) {
+				t.Fatalf("status = %+v, want Failed with the registry error", info)
+			}
+			if f.fallbackCalls != 1 {
+				t.Errorf("fallback calls = %d, want 1", f.fallbackCalls)
+			}
+			if st.GetArtifact(repo.Named()) != nil {
+				t.Error("failed fallback must not store an artifact")
+			}
+		})
 	}
 }
 
