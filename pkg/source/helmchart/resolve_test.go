@@ -1,8 +1,11 @@
 package helmchart
 
 import (
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -146,5 +149,69 @@ func TestResolveChart_ExactVersionForever(t *testing.T) {
 	}
 	if *indexes != 1 || *charts != 1 {
 		t.Fatalf("requests: index=%d chart=%d, want 1/1", *indexes, *charts)
+	}
+}
+
+// A chart version published after the cached index.yaml was taken is found
+// on a forced index refresh within spec.interval; a version absent from the
+// fresh index is final and costs no further index fetch.
+func TestResolveChart_StaleCachedIndexRefreshesOnMiss(t *testing.T) {
+	chartBytes := buildChartTarGz(t, "app-template", "1.0.0")
+	newChartBytes := buildChartTarGz(t, "app-template", "2.0.0")
+	index := func(versions ...string) string {
+		s := "apiVersion: v1\nentries:\n  app-template:\n"
+		for _, v := range versions {
+			s += "    - name: app-template\n      version: " + v + "\n      urls:\n        - app-template-" + v + ".tgz\n"
+		}
+		return s
+	}
+	published := index("1.0.0")
+	var indexHits atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/index.yaml", func(w http.ResponseWriter, _ *http.Request) {
+		indexHits.Add(1)
+		_, _ = io.WriteString(w, published)
+	})
+	mux.HandleFunc("/app-template-1.0.0.tgz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(chartBytes) })
+	mux.HandleFunc("/app-template-2.0.0.tgz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(newChartBytes) })
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	r := httpRepo(srv.URL)
+	r.Interval = metav1.Duration{Duration: time.Hour}
+
+	cache, err := sourcecache.New(t.Context(), cacheroot.New(t.TempDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cache.Close() })
+	cold := fetcherWithCache(t, r, cache)
+	if _, err := cold.Fetch(t.Context(), helmChart("repo", "app-template", "1.0.0")); err != nil {
+		t.Fatalf("cold Fetch: %v", err)
+	}
+	published = index("1.0.0", "2.0.0") // released after the index was cached
+
+	warm := fetcherWithCache(t, r, cache)
+	art, err := warm.Fetch(t.Context(), helmChart("repo", "app-template", "2.0.0"))
+	if err != nil {
+		t.Fatalf("warm Fetch of a chart newer than the cached index: %v", err)
+	}
+	if art.Digest != chartDigest(newChartBytes) {
+		t.Errorf("art.Digest = %q, want %q", art.Digest, chartDigest(newChartBytes))
+	}
+	if got := indexHits.Load(); got != 2 {
+		t.Fatalf("indexHits=%d, want 2 (cold fetch + one refresh on miss)", got)
+	}
+	if _, err := warm.Fetch(t.Context(), helmChart("repo", "app-template", "9.9.9")); !errors.Is(err, manifest.ErrObjectNotFound) {
+		t.Fatalf("err = %v, want ErrObjectNotFound for a version absent from the fresh index", err)
+	}
+	if got := indexHits.Load(); got != 2 {
+		t.Errorf("indexHits=%d, want 2 (an index this process fetched is not refreshed again)", got)
+	}
+	third := fetcherWithCache(t, r, cache)
+	if _, err := third.Fetch(t.Context(), helmChart("repo", "app-template", "9.9.9")); !errors.Is(err, manifest.ErrObjectNotFound) {
+		t.Fatalf("err = %v, want ErrObjectNotFound", err)
+	}
+	if got := indexHits.Load(); got != 3 {
+		t.Errorf("indexHits=%d, want 3 (one refresh per process on a cached-index miss)", got)
 	}
 }

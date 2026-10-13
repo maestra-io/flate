@@ -37,7 +37,7 @@ type Fetcher struct {
 	oci     ociFetcher          // OCI-backed charts (a synthesized OCIRepository)
 	cache   *cache.Cache        // content-addressed store for HTTP chart tarballs
 
-	indexCache                 sync.Map                // map[string]*repo.IndexFile (process lifetime)
+	indexCache                 sync.Map                // map[string]cachedIndex (process lifetime)
 	indexLocks                 *keylock.KeyMap[string] // coalesce one index.yaml fetch per repo
 	disableChartDigestTracking bool
 }
