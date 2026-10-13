@@ -37,13 +37,9 @@ func (f *Fetcher) fetchHTTPChart(ctx context.Context, r *manifest.HelmRepository
 		maxAge = cache.Forever
 	}
 	reader, desc, err := f.cache.Blob(ctx, key, maxAge, func(w io.Writer) (ocispec.Descriptor, error) {
-		idx, err := f.fetchIndex(ctx, r)
+		cv, err := f.chartVersion(ctx, r, chartName, version)
 		if err != nil {
 			return ocispec.Descriptor{}, err
-		}
-		cv, err := idx.Get(chartName, version)
-		if err != nil {
-			return ocispec.Descriptor{}, fmt.Errorf("%w: chart %s@%s not found in %s: %v", manifest.ErrObjectNotFound, chartName, version, r.URL, err)
 		}
 		if len(cv.URLs) == 0 {
 			return ocispec.Descriptor{}, fmt.Errorf("%w: chart %s@%s in %s has no URLs", manifest.ErrObjectNotFound, chartName, version, r.URL)
@@ -78,22 +74,63 @@ func (f *Fetcher) fetchHTTPChart(ctx context.Context, r *manifest.HelmRepository
 		URL: desc.Annotations["flate.chart-url"], Revision: desc.Annotations["flate.chart-version"], Digest: desc.Digest.Encoded(), Size: desc.Size}, nil
 }
 
-func (f *Fetcher) fetchIndex(ctx context.Context, r *manifest.HelmRepository) (*repo.IndexFile, error) {
-	h, err := source.CacheKeyHash([]any{r.URL, helmRepoAuthIdentity(r), r.PassCredentials}, 32)
+// chartVersion resolves chartName@version from the repository index. A miss on
+// an index this process did not fetch (served from the on-disk cache within
+// spec.interval) is retried once on a freshly fetched index, so a chart
+// published after the cached index was taken still renders; a miss on a fresh
+// index is final.
+func (f *Fetcher) chartVersion(ctx context.Context, r *manifest.HelmRepository, chartName, version string) (*repo.ChartVersion, error) {
+	idx, fetched, err := f.fetchIndex(ctx, r, false)
 	if err != nil {
 		return nil, err
+	}
+	cv, err := idx.Get(chartName, version)
+	// Get fails a malformed constraint before any lookup; only a missing
+	// chart or version is worth a refresh.
+	if err != nil && !fetched && (version == "" || isSemverConstraint(version)) {
+		if idx, _, err = f.fetchIndex(ctx, r, true); err != nil {
+			return nil, err
+		}
+		cv, err = idx.Get(chartName, version)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%w: chart %s@%s not found in %s: %v", manifest.ErrObjectNotFound, chartName, version, r.URL, err)
+	}
+	return cv, nil
+}
+
+// cachedIndex is one parsed index.yaml and whether this process fetched it
+// (false: served from the on-disk cache).
+type cachedIndex struct {
+	idx     *repo.IndexFile
+	fetched bool
+}
+
+// fetchIndex returns the repository index and whether this process fetched
+// it. refresh bypasses the cache age and re-fetches, unless this process
+// already fetched the index.
+func (f *Fetcher) fetchIndex(ctx context.Context, r *manifest.HelmRepository, refresh bool) (*repo.IndexFile, bool, error) {
+	h, err := source.CacheKeyHash([]any{r.URL, helmRepoAuthIdentity(r), r.PassCredentials}, 32)
+	if err != nil {
+		return nil, false, err
 	}
 	release, err := f.indexLocks.Acquire(ctx, h)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer release()
 	if v, ok := f.indexCache.Load(h); ok {
-		return v.(*repo.IndexFile), nil
+		if c := v.(cachedIndex); c.fetched || !refresh {
+			return c.idx, c.fetched, nil
+		}
+	}
+	maxAge := r.Interval.Duration
+	if refresh {
+		maxAge = 0
 	}
 	indexURL := strings.TrimSuffix(r.URL, "/") + "/index.yaml"
 	var idx *repo.IndexFile
-	reader, _, err := f.cache.Blob(ctx, cache.BlobKey{ID: "blob-index-" + h}, r.Interval.Duration, func(w io.Writer) (ocispec.Descriptor, error) {
+	reader, _, err := f.cache.Blob(ctx, cache.BlobKey{ID: "blob-index-" + h}, maxAge, func(w io.Writer) (ocispec.Descriptor, error) {
 		var buf bytes.Buffer
 		desc, err := f.httpGet(ctx, r, indexURL, io.MultiWriter(w, &buf))
 		if err != nil {
@@ -106,28 +143,29 @@ func (f *Fetcher) fetchIndex(ctx context.Context, r *manifest.HelmRepository) (*
 		return desc, nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("fetch %s: %w", indexURL, err)
+		return nil, false, fmt.Errorf("fetch %s: %w", indexURL, err)
 	}
+	fetched := idx != nil
 	var data []byte
 	var readErr error
-	if idx == nil {
+	if !fetched {
 		data, readErr = io.ReadAll(reader)
 	}
 	closeErr := reader.Close()
 	if readErr != nil {
-		return nil, readErr
+		return nil, false, readErr
 	}
 	if closeErr != nil {
-		return nil, closeErr
+		return nil, false, closeErr
 	}
-	if idx == nil {
+	if !fetched {
 		idx, err = indexFromBytes(data)
 		if err != nil {
-			return nil, fmt.Errorf("parse %s: %w", indexURL, err)
+			return nil, false, fmt.Errorf("parse %s: %w", indexURL, err)
 		}
 	}
-	f.indexCache.Store(h, idx)
-	return idx, nil
+	f.indexCache.Store(h, cachedIndex{idx: idx, fetched: fetched})
+	return idx, fetched, nil
 }
 
 // indexFromBytes follows Flux's IndexFromBytes policy, including skippable chart validation.

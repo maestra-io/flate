@@ -94,10 +94,10 @@ func TestFetchIndex_InvalidResponseDoesNotPublish(t *testing.T) {
 			t.Cleanup(srv.Close)
 			r := httpRepo(srv.URL)
 			f := newHTTPFetcher(t, r)
-			if _, err := f.fetchIndex(t.Context(), r); err == nil {
+			if _, _, err := f.fetchIndex(t.Context(), r, false); err == nil {
 				t.Fatal("accepted invalid index")
 			}
-			idx, err := f.fetchIndex(t.Context(), r)
+			idx, _, err := f.fetchIndex(t.Context(), r, false)
 			if err != nil {
 				t.Fatalf("retry within repository interval: %v", err)
 			}
@@ -105,7 +105,7 @@ func TestFetchIndex_InvalidResponseDoesNotPublish(t *testing.T) {
 				t.Fatal(err)
 			}
 			warm := New(nil, nil, nil, Config{Cache: f.cache})
-			if _, err := warm.fetchIndex(t.Context(), r); err != nil {
+			if _, _, err := warm.fetchIndex(t.Context(), r, false); err != nil {
 				t.Fatalf("cached index: %v", err)
 			}
 			if got := attempts.Load(); got != 2 {
