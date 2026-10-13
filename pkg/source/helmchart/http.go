@@ -85,7 +85,9 @@ func (f *Fetcher) chartVersion(ctx context.Context, r *manifest.HelmRepository, 
 		return nil, err
 	}
 	cv, err := idx.Get(chartName, version)
-	if err != nil && !fetched {
+	// Get fails a malformed constraint before any lookup; only a missing
+	// chart or version is worth a refresh.
+	if err != nil && !fetched && (version == "" || isSemverConstraint(version)) {
 		if idx, _, err = f.fetchIndex(ctx, r, true); err != nil {
 			return nil, err
 		}

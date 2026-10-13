@@ -207,7 +207,13 @@ func TestResolveChart_StaleCachedIndexRefreshesOnMiss(t *testing.T) {
 	if got := indexHits.Load(); got != 2 {
 		t.Errorf("indexHits=%d, want 2 (an index this process fetched is not refreshed again)", got)
 	}
+	if _, err := warm.Fetch(t.Context(), helmChart("repo", "app-template", ">= 1.0.0 <")); err == nil {
+		t.Fatal("accepted a malformed version constraint")
+	}
 	third := fetcherWithCache(t, r, cache)
+	if _, err := third.Fetch(t.Context(), helmChart("repo", "app-template", ">= 1.0.0 <")); err == nil || indexHits.Load() != 2 {
+		t.Fatalf("malformed constraint: err=%v indexHits=%d, want an error with no index refresh", err, indexHits.Load())
+	}
 	if _, err := third.Fetch(t.Context(), helmChart("repo", "app-template", "9.9.9")); !errors.Is(err, manifest.ErrObjectNotFound) {
 		t.Fatalf("err = %v, want ErrObjectNotFound", err)
 	}
