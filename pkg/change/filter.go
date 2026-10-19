@@ -2,6 +2,7 @@ package change
 
 import (
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/home-operations/flate/pkg/manifest"
@@ -594,12 +595,26 @@ func (f *Filter) findSourceRewriters() map[manifest.NamedResource]struct{} {
 		owners, _ := f.index.OwnersOfFile(record.File)
 		for _, owner := range owners {
 			ks, ok := f.objs.GetObject(owner).(*manifest.Kustomization)
-			if ok && (ks.PostBuild != nil || len(ks.Patches) > 0) {
+			if !ok || !f.claimsFile(owner, record.File) {
+				continue // graph readers do not render the file
+			}
+			if len(ks.Patches) > 0 || (ks.PostBuild != nil &&
+				(len(ks.PostBuild.Substitute) > 0 || len(ks.PostBuild.SubstituteFrom) > 0)) {
 				out[owner] = struct{}{}
 			}
 		}
 	}
 	return out
+}
+
+// claimsFile reports whether id's spec.path claim covers file.
+func (f *Filter) claimsFile(id manifest.NamedResource, file string) bool {
+	for prefix, ids := range f.index.Claims {
+		if strings.HasPrefix(file+"/", prefix) && slices.Contains(ids, id) {
+			return true
+		}
+	}
+	return false
 }
 
 // sourceDependsOn returns the dependsOn targets of Kustomization id that
