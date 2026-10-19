@@ -2,6 +2,7 @@ package change
 
 import (
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/home-operations/flate/pkg/manifest"
@@ -51,6 +52,11 @@ type Filter struct {
 	// keepByName: (Kind, Name) presence set used as an O(1) fallback
 	// when either side of a lookup has an empty namespace.
 	keepByName map[nameKey]struct{}
+
+	// sourceRewriters: Kustomizations whose render rewrites a Flux
+	// source file under their spec.path (postBuild or patches). Set
+	// once in resolve(), read-only afterwards.
+	sourceRewriters map[manifest.NamedResource]struct{}
 }
 
 type nameKey struct{ kind, name string }
@@ -234,6 +240,7 @@ func (f *Filter) addRecursiveLocked(id manifest.NamedResource) []manifest.NamedR
 			// identical to baseline). See #418.
 			added = append(added, f.addDependencyOnlyRecursiveLocked(f.producersFor(dep)...)...)
 		}
+		added = append(added, f.addDependencyOnlyRecursiveLocked(f.sourceDependsOn(cur)...)...)
 	}
 	return added
 }
@@ -266,6 +273,7 @@ func (f *Filter) addDependencyOnlyRecursiveLocked(ids ...manifest.NamedResource)
 		if f.objs == nil {
 			continue
 		}
+		stack = append(stack, f.sourceDependsOn(cur)...)
 		for _, dep := range transitiveDeps(f.objs, cur) {
 			stack = append(stack, dep)
 			for _, producer := range f.producersFor(dep) {
@@ -281,6 +289,7 @@ func (f *Filter) addDependencyOnlyRecursiveLocked(ids ...manifest.NamedResource)
 
 func (f *Filter) resolve() {
 	objs := f.objs
+	f.sourceRewriters = f.findSourceRewriters()
 	// Capacity hint: the final keep set is roughly proportional to the
 	// discovery record map; prime both maps and the BFS queue at that size
 	// to avoid repeated rehash/realloc on the initial resolve scan.
@@ -470,6 +479,9 @@ func (f *Filter) resolve() {
 				enqueueAncestor(producer)
 			}
 		}
+		for _, d := range f.sourceDependsOn(queue[head]) {
+			enqueueAncestor(d)
+		}
 		// Also walk the structural-parent chain of any Flux
 		// Kustomization in the keep set. A leaf change pulls in its
 		// owner KS (above); that KS's own source file might live under
@@ -561,6 +573,69 @@ func (f *Filter) KeepNamespaces() map[string]struct{} {
 	}
 	if len(out) == 0 {
 		return nil
+	}
+	return out
+}
+
+// findSourceRewriters returns the Kustomizations that own a Flux source
+// file (HelmRepository, OCIRepository, ...) and render it through
+// postBuild or patches.
+func (f *Filter) findSourceRewriters() map[manifest.NamedResource]struct{} {
+	out := map[manifest.NamedResource]struct{}{}
+	if f.objs == nil {
+		return out
+	}
+	for id, record := range f.index.Files() {
+		switch id.Kind {
+		case manifest.KindHelmRepository, manifest.KindOCIRepository, manifest.KindGitRepository,
+			manifest.KindBucket, manifest.KindHelmChart:
+		default:
+			continue
+		}
+		owners, _ := f.index.OwnersOfFile(record.File)
+		for _, owner := range owners {
+			ks, ok := f.objs.GetObject(owner).(*manifest.Kustomization)
+			if !ok || !f.claimsFile(owner, record.File) {
+				continue // graph readers do not render the file
+			}
+			if len(ks.Patches) > 0 || (ks.PostBuild != nil &&
+				(len(ks.PostBuild.Substitute) > 0 || len(ks.PostBuild.SubstituteFrom) > 0)) {
+				out[owner] = struct{}{}
+			}
+		}
+	}
+	return out
+}
+
+// claimsFile reports whether id's spec.path claim covers file.
+func (f *Filter) claimsFile(id manifest.NamedResource, file string) bool {
+	for prefix, ids := range f.index.Claims {
+		if strings.HasPrefix(file+"/", prefix) && slices.Contains(ids, id) {
+			return true
+		}
+	}
+	return false
+}
+
+// sourceDependsOn returns the dependsOn targets of Kustomization id that
+// rewrite a Flux source (see findSourceRewriters). dependsOn is otherwise
+// reconcile-ordering only, but such a target must render before id: its
+// raw file-loaded source (e.g. `url: oci://${CONTAINER_REGISTRY}/charts`)
+// is not what Flux applies, and id's HelmReleases would build their
+// HelmCharts from it.
+func (f *Filter) sourceDependsOn(id manifest.NamedResource) []manifest.NamedResource {
+	if f.objs == nil || id.Kind != manifest.KindKustomization || len(f.sourceRewriters) == 0 {
+		return nil
+	}
+	ks, ok := f.objs.GetObject(id).(*manifest.Kustomization)
+	if !ok {
+		return nil
+	}
+	var out []manifest.NamedResource
+	for _, d := range ks.DependsOn {
+		if _, ok := f.sourceRewriters[d.NamedResource]; ok {
+			out = append(out, d.NamedResource)
+		}
 	}
 	return out
 }
