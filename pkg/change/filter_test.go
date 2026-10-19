@@ -4,6 +4,7 @@ import (
 	"slices"
 	"testing"
 
+	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	"github.com/home-operations/flate/internal/testutil"
 	"github.com/home-operations/flate/pkg/manifest"
@@ -481,6 +482,32 @@ func TestFilter_DependsOnNotFollowed(t *testing.T) {
 	}
 	if f.ShouldReconcile(bID) {
 		t.Errorf("dependsOn dragged b into keep set; keep=%v", f.KeepNames())
+	}
+}
+
+// TestFilter_DependsOnSourceRewriterFollowed: `a` depends on `b`, whose
+// postBuild substitutes the url of the HelmRepository under its path. The
+// raw file copy (`oci://${CONTAINER_REGISTRY}/charts`) is unparsable, so
+// `b` must render before `a`'s HelmReleases build HelmCharts from it.
+func TestFilter_DependsOnSourceRewriterFollowed(t *testing.T) {
+	a := &manifest.Kustomization{
+		Name: "a", Namespace: "flux-system", Path: "./a",
+		SourceKind: manifest.KindGitRepository, SourceName: "src", SourceNamespace: "flux-system",
+		DependsOn: []manifest.DependencyRef{{
+			Kind: manifest.KindKustomization, Namespace: "flux-system", Name: "b",
+		}},
+	}
+	b := &manifest.Kustomization{Name: "b", Namespace: "flux-system"}
+	b.Path = "./b"
+	b.PostBuild = &kustomizev1.PostBuild{Substitute: map[string]string{"CONTAINER_REGISTRY": "registry.test"}}
+	aID, bID := a.Named(), b.Named()
+	repoID := manifest.NamedResource{Kind: manifest.KindHelmRepository, Namespace: "apps", Name: "charts"}
+	objs := testutil.MapLister{aID: a, bID: b}
+
+	f := NewFilter(NewSet([]string{"a.yaml"}), filterFixture{files: map[manifest.NamedResource]string{aID: "a.yaml", repoID: "b/repo.yaml"}, root: "", objects: objs}.index(), objs)
+
+	if !f.ShouldReconcile(bID) {
+		t.Errorf("source-rewriting dependsOn target b not kept; keep=%v", f.KeepNames())
 	}
 }
 
