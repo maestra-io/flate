@@ -16,7 +16,7 @@ jobs:
     name: build + publish
     runs-on: runs-on=${{ github.run_id }}/pool=build
     steps:
-      - uses: runs-on/action@v2
+      - uses: runs-on/action@17b59092eb37ebfdbb034460892887c09100eaa3 # v2.5.0
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
