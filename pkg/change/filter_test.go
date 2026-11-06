@@ -1,6 +1,7 @@
 package change
 
 import (
+	"cmp"
 	"slices"
 	"testing"
 
@@ -858,11 +859,13 @@ func TestFilter_ReverseEdgeLocalChart(t *testing.T) {
 	owner := &manifest.Kustomization{Name: "app", Namespace: "flux-system", Path: "cluster/app"}
 	objs := testutil.MapLister{owner.Named(): owner}
 	for _, tt := range []struct {
-		name    string
-		changed string
-		want    bool
+		name      string
+		chartPath string
+		changed   string
+		want      bool
 	}{
 		{name: "template", changed: chart + "/templates/cr.yaml", want: true},
+		{name: "chart_at_source_root", chartPath: ".", changed: "templates/cr.yaml", want: true},
 		{name: "chart_file", changed: chart + "/Chart.yaml", want: true},
 		{name: "same_prefix_other_dir", changed: chart + "-two/Chart.yaml"},
 		{name: "outside", changed: "base/app/README.md"},
@@ -874,7 +877,7 @@ func TestFilter_ReverseEdgeLocalChart(t *testing.T) {
 				owner.Named(): "flux/app.yaml",
 			}, objects: objs, changed: NewSet([]string{tt.changed})}.index()
 			r := index.Records[hr]
-			r.ChartPath = chart
+			r.ChartPath = cmp.Or(tt.chartPath, chart)
 			index.Records[hr] = r
 
 			f := NewFilter(NewSet([]string{tt.changed}), index, objs)

@@ -684,14 +684,15 @@ func (l *Loader) recordDataFile(absPath string) error {
 	return nil
 }
 
-// localChartPath returns the directory of a chart read from a Git source, or "" for
-// any other chart. A path leaving the source names nothing the change set can hold.
+// localChartPath returns the directory of a chart read from a Git source, "." for a
+// chart at the source root, or "" for any other chart. A path leaving the source
+// names nothing the change set can hold.
 func localChartPath(c manifest.HelmChart) string {
 	if c.RepoKind != manifest.KindGitRepository {
 		return ""
 	}
-	dir := path.Clean(c.Name)
-	if dir == "." || dir == ".." || strings.HasPrefix(dir, "../") || path.IsAbs(dir) {
+	dir := path.Clean(filepath.ToSlash(c.Name))
+	if dir == ".." || strings.HasPrefix(dir, "../") || path.IsAbs(dir) {
 		return ""
 	}
 	return dir

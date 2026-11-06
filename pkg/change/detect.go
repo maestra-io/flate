@@ -61,10 +61,13 @@ func (s *Set) Contains(rel string) bool {
 }
 
 // ContainsUnder reports whether a file below the slash-separated directory dir is in
-// the change set. An empty dir names nothing.
+// the change set. An empty dir names nothing; "." is the root, so any file is below it.
 func (s *Set) ContainsUnder(dir string) bool {
 	if s == nil || dir == "" {
 		return false
+	}
+	if dir == "." {
+		return len(s.paths) != 0
 	}
 	prefix := dir + "/"
 	for p := range s.paths {
