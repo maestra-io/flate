@@ -233,6 +233,7 @@ func TestFinalizeIndex_OwnersOfFileInputEscape(t *testing.T) {
 		"configMapGenerator_files":      "configMapGenerator:\n  - name: rules\n    files:\n      - rules/input.yaml\n",
 		"configMapGenerator_keyed_file": "configMapGenerator:\n  - name: rules\n    files:\n      - key.yaml=rules/input.yaml\n",
 		"configMapGenerator_envs":       "configMapGenerator:\n  - name: rules\n    envs:\n      - rules/input.yaml\n",
+		"configMapGenerator_env":        "configMapGenerator:\n  - name: rules\n    env: rules/input.yaml\n",
 		"secretGenerator_files":         "secretGenerator:\n  - name: rules\n    files:\n      - rules/input.yaml\n",
 	} {
 		t.Run(name, func(t *testing.T) {

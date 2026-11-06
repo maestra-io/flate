@@ -397,6 +397,9 @@ func inputFiles(d *kustomizationDocument) []string {
 			files = append(files, stripFileEntryKey(f))
 		}
 		files = append(files, g.EnvSources...)
+		if g.EnvSource != "" {
+			files = append(files, g.EnvSource)
+		}
 	}
 	for _, g := range d.ConfigMapGenerator {
 		addGenerator(g.GeneratorArgs)

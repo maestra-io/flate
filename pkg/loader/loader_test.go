@@ -782,11 +782,13 @@ spec:
 // filter. A chart from a registry, or a chart path that leaves the source, has none.
 func TestLoader_DiscoveryOnlyRecordsLocalChartPath(t *testing.T) {
 	for name, tc := range map[string]struct{ chart, kind, want string }{
-		"git":             {"./base/app/chart", manifest.KindGitRepository, "base/app/chart"},
-		"git_no_dot":      {"base/app/chart/", manifest.KindGitRepository, "base/app/chart"},
-		"git_source_root": {".", manifest.KindGitRepository, "."},
-		"git_escapes":     {"../other/chart", manifest.KindGitRepository, ""},
-		"helm_repository": {"app", manifest.KindHelmRepository, ""},
+		"git":               {"./base/app/chart", manifest.KindGitRepository, "base/app/chart"},
+		"git_no_dot":        {"base/app/chart/", manifest.KindGitRepository, "base/app/chart"},
+		"git_source_root":   {".", manifest.KindGitRepository, "."},
+		"git_absolute":      {"/base/app/chart", manifest.KindGitRepository, "base/app/chart"},
+		"git_absolute_root": {"/", manifest.KindGitRepository, "."},
+		"git_escapes":       {"../other/chart", manifest.KindGitRepository, ""},
+		"helm_repository":   {"app", manifest.KindHelmRepository, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
