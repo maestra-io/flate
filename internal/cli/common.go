@@ -59,6 +59,7 @@ type commonFlags struct {
 	skipKinds            []string
 	output               string
 	registryConfig       string
+	helmRepoRewrite      string
 	concurrency          int
 	// sourceRetry* tune the bounded retry applied uniformly to every source
 	// fetch on transient network errors. attempts is the total tries (first +
@@ -159,6 +160,11 @@ func bindCommon(fs *pflag.FlagSet, f *commonFlags, outputs ...format.Output) {
 		fs.VarP(&outputValue{target: &f.output, allowed: outputs}, "output", "o", outputUsage(outputs))
 	}
 	fs.StringVar(&f.registryConfig, "registry-config", "", "docker config.json for OCI authentication")
+	fs.StringVar(&f.helmRepoRewrite, "helm-repository-rewrite", "",
+		"`file` (YAML/JSON) redirecting HelmRepository chart fetches to a mirror, as a URL-rewriting admission policy does: "+
+			"http: maps a spec.url to the URL fetched instead, oci: a registry host to the oci:// base its path is appended to. "+
+			"A rewritten repository drops spec.secretRef and authenticates with the --registry-config credential of the mirror host; "+
+			"rendered objects keep their spec.url.")
 	fs.StringVar(&f.cacheDir, "cache-dir", "",
 		"on-disk cache root for source artifacts, helm charts, "+
 			"and persistent render output. Defaults to $XDG_CACHE_HOME/flate "+
@@ -475,6 +481,7 @@ func buildOrchCfg(c commonFlags, h helmFlags) orchestrator.Config {
 		DisableChartDigestTracking: h.disableChartDigestTracking,
 		WipeSecrets:                true,
 		RegistryConfig:             c.registryConfig,
+		HelmRepositoryRewrite:      c.helmRepoRewrite,
 		Concurrency:                c.concurrency,
 		SourceRetry: source.RetryConfig{
 			Attempts: c.sourceRetryAttempts,

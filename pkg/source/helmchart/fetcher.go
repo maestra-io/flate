@@ -40,6 +40,7 @@ type Fetcher struct {
 	indexCache                 sync.Map                // map[string]cachedIndex (process lifetime)
 	indexLocks                 *keylock.KeyMap[string] // coalesce one index.yaml fetch per repo
 	disableChartDigestTracking bool
+	rewrite                    *Rewrite // nil = fetch every repository from its spec.url
 }
 
 // Config fixes acquisition and chart identity policy before reconciliation.
@@ -48,12 +49,14 @@ type Config struct {
 	Cache *cache.Cache
 	// DisableChartDigestTracking makes exact chart versions immutable cache pins.
 	DisableChartDigestTracking bool
+	// Rewrite redirects matching repositories to a mirror; nil = none.
+	Rewrite *Rewrite
 }
 
 // New constructs a fetcher using the caller-owned acquisition cache.
 func New(secrets source.SecretGetter, repos RepoLookup, oci ociFetcher, cfg Config) *Fetcher {
 	return &Fetcher{secrets: secrets, repos: repos, oci: oci, cache: cfg.Cache,
-		disableChartDigestTracking: cfg.DisableChartDigestTracking, indexLocks: keylock.New[string]()}
+		disableChartDigestTracking: cfg.DisableChartDigestTracking, indexLocks: keylock.New[string](), rewrite: cfg.Rewrite}
 }
 
 // Fetch implements source.TypedFetcher[*manifest.HelmChartSource]. It
@@ -75,6 +78,7 @@ func (f *Fetcher) Fetch(ctx context.Context, hc *manifest.HelmChartSource) (*sto
 		return nil, fmt.Errorf("%w: %s backing HelmChart %s", manifest.ErrObjectNotFound,
 			source.QualifiedName("HelmRepository", hc.Namespace, hc.SourceRef.Name), hc.Named().String())
 	}
+	r = f.rewrite.apply(r)
 	if isOCIHelmRepo(r) {
 		// Delegate to the OCI fetcher via a synthesized OCIRepository. The
 		// artifact is re-stamped KindHelmChart so the Store entry matches

@@ -1,6 +1,7 @@
 package helmchart
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net/http"
@@ -17,9 +18,9 @@ func helmRepoAuthIdentity(r *manifest.HelmRepository) string {
 	return source.AuthIdentityFromRefs(r.Namespace, r.SecretRef, r.CertSecretRef)
 }
 
-func (f *Fetcher) helmRepoCredentials(r *manifest.HelmRepository) (string, string, error) {
+func (f *Fetcher) helmRepoCredentials(ctx context.Context, r *manifest.HelmRepository) (string, string, error) {
 	if r.SecretRef == nil {
-		return "", "", nil
+		return f.rewrite.credentials(ctx, r.URL)
 	}
 	if f.secrets == nil {
 		return "", "", fmt.Errorf("%w: %s references secretRef but no SecretGetter is wired", manifest.ErrMissingSecret, helmID(r))

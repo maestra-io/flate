@@ -59,6 +59,9 @@ func TestBindCommon_ForceGenericProviderFlag(t *testing.T) {
 	if cfg := parse(t, "--force-generic-provider"); !cfg.ForceGenericProvider {
 		t.Errorf("--force-generic-provider: ForceGenericProvider = false, want true")
 	}
+	if cfg := parse(t, "--helm-repository-rewrite", "rewrite.yaml"); cfg.HelmRepositoryRewrite != "rewrite.yaml" {
+		t.Errorf("--helm-repository-rewrite: HelmRepositoryRewrite = %q, want rewrite.yaml", cfg.HelmRepositoryRewrite)
+	}
 }
 
 // TestCacheDir_FlagAndEnvPopulateRoot runs build all twice — once via
