@@ -93,6 +93,7 @@ func (rw *Rewrite) apply(r *manifest.HelmRepository) *manifest.HelmRepository {
 	cp := *r
 	cp.URL = to
 	cp.SecretRef = nil
+	cp.PassCredentials = false // the mirror credential never leaves the mirror host
 	return &cp
 }
 

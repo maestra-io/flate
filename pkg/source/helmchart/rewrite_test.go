@@ -157,3 +157,35 @@ func TestFetch_OCIRewrite(t *testing.T) {
 		t.Errorf("SecretRef = %v, want nil (the mirror authenticates via --registry-config)", stub.got.SecretRef)
 	}
 }
+
+// A redirect off the mirror host (net/http would forward Authorization to
+// another port of the same hostname) never carries the mirror credential.
+func TestFetch_RewriteCredentialStaysOnMirrorHost(t *testing.T) {
+	chartBytes := buildChartTarGz(t, "app-template", "1.0.0")
+	var leaked bool
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			leaked = true
+		}
+		_, _ = w.Write([]byte(helmRepoIndex(chartDigest(chartBytes))))
+	}))
+	t.Cleanup(other.Close)
+	mirror := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, other.URL+r.URL.Path, http.StatusFound)
+	}))
+	t.Cleanup(mirror.Close)
+
+	host := strings.TrimPrefix(mirror.URL, "http://")
+	rw := writeRewrite(t,
+		fmt.Sprintf("http:\n  https://charts.example.org: %s/helm/example\n", mirror.URL),
+		fmt.Sprintf(`{"auths":{%q:{"auth":%q}}}`, host, base64.StdEncoding.EncodeToString([]byte("oidc:jwt"))))
+	repo := httpRepo("https://charts.example.org")
+	repo.PassCredentials = true
+	f := newHTTPFetcher(t, repo)
+	f.rewrite = rw
+
+	_, _ = f.Fetch(context.Background(), helmChart("repo", "app-template", "1.0.0"))
+	if leaked {
+		t.Error("mirror credential sent to a redirect target off the mirror host")
+	}
+}

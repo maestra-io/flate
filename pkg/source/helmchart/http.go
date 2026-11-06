@@ -253,7 +253,18 @@ func (f *Fetcher) httpGet(ctx context.Context, r *manifest.HelmRepository, targe
 	if tr == nil {
 		tr = helmGuardedTransport
 	}
-	client := &http.Client{Transport: tr, Timeout: helmHTTPTimeout}
+	client := &http.Client{Transport: tr, Timeout: helmHTTPTimeout, CheckRedirect: func(next *http.Request, via []*http.Request) error {
+		// net/http forwards Authorization to a subdomain or another port;
+		// credentials follow a redirect only to the same host, or anywhere
+		// under spec.passCredentials.
+		if !r.PassCredentials && next.URL.Host != via[0].URL.Host {
+			next.Header.Del("Authorization")
+		}
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		return nil
+	}}
 	response, err := client.Do(req)
 	if err != nil {
 		return ocispec.Descriptor{}, err
