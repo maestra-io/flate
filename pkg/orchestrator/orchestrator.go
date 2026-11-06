@@ -127,6 +127,10 @@ type Config struct {
 	// RegistryConfig is the docker config.json used for OCI auth.
 	RegistryConfig string
 
+	// HelmRepositoryRewrite is the path of a helmchart.Rewrite file that
+	// redirects HelmRepository chart fetches to a mirror; empty = none.
+	HelmRepositoryRewrite string
+
 	// CacheDir overrides the default on-disk cache root. The default
 	// follows os.UserCacheDir (XDG_CACHE_HOME on Linux, Library/Caches
 	// on macOS, %LocalAppData% on Windows) with a "flate" subdir, so
@@ -625,6 +629,10 @@ func (o *Orchestrator) Bootstrap(ctx context.Context) error {
 		secret, _ := o.store.GetByName[*manifest.Secret](manifest.KindSecret, ns, name)
 		return secret
 	}
+	rewrite, err := helmchart.LoadRewrite(o.cfg.HelmRepositoryRewrite, o.cfg.RegistryConfig)
+	if err != nil {
+		return err
+	}
 	resolver := helm.NewStoreSourceResolver(o.store)
 	ociFetcher := &oci.Fetcher{Cache: o.cache, RegistryConfig: o.cfg.RegistryConfig, Secrets: secretGet, ForceGeneric: o.cfg.ForceGenericProvider}
 	for kind, f := range map[string]source.Fetcher{
@@ -633,7 +641,7 @@ func (o *Orchestrator) Bootstrap(ctx context.Context) error {
 		manifest.KindOCIRepository: source.Wrap(manifest.KindOCIRepository, ociFetcher),
 		manifest.KindHelmChart: source.Wrap(manifest.KindHelmChart,
 			helmchart.New(secretGet, resolver.HelmRepository, ociFetcher, helmchart.Config{
-				Cache: o.cache, DisableChartDigestTracking: o.hrc.Options.DisableChartDigestTracking})),
+				Cache: o.cache, DisableChartDigestTracking: o.hrc.Options.DisableChartDigestTracking, Rewrite: rewrite})),
 	} {
 		if current, exists := o.src.Fetchers[kind]; exists && current == nil {
 			o.src.Fetchers[kind] = source.WithRetry(f, o.cfg.SourceRetry)

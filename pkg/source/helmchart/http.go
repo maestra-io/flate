@@ -239,7 +239,7 @@ func (f *Fetcher) httpGet(ctx context.Context, r *manifest.HelmRepository, targe
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}
-	username, password, err := f.helmRepoCredentials(r)
+	username, password, err := f.helmRepoCredentials(ctx, r)
 	if err != nil {
 		return ocispec.Descriptor{}, err
 	}

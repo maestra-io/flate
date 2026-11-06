@@ -169,10 +169,11 @@ func (f *Fetcher) registryFallback(ctx context.Context, repo *manifest.OCIReposi
 }
 
 // loadCredentials returns a credentials.Store backed by the given config
-// path. An empty configPath uses the docker default lookup.
+// path, its credsStore and credHelpers included. An empty configPath uses the
+// docker default lookup.
 func loadCredentials(configPath string) (credentials.Store, error) {
 	if configPath != "" {
-		s, err := credentials.NewFileStore(configPath)
+		s, err := credentials.NewStore(configPath, credentials.StoreOptions{})
 		if err != nil {
 			return nil, fmt.Errorf("load credentials %s: %w", configPath, err)
 		}
