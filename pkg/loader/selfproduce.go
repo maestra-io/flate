@@ -356,7 +356,39 @@ func (w *graphWalker) walk(v graphVisit, yield func(graphVisit) bool) bool {
 			}
 		}
 	}
+	// A patch file changes the owner's render like a resource does, but it holds
+	// no objects of its own: record the reader, never read it as produced data.
+	for _, ref := range patchFiles(d) {
+		resolved, ok := resolvePath(v.dir, ref)
+		if !ok {
+			continue
+		}
+		child := v
+		child.dir = filepath.ToSlash(resolved)
+		child.file, child.document, child.readable = filepath.Join(v.root, resolved), nil, false
+		child.coordinate = path.Join(v.prefix, child.dir)
+		if !yield(child) {
+			return false
+		}
+	}
 	return true
+}
+
+// patchFiles returns the file paths d's patches read; inline patches carry none.
+func patchFiles(d *kustomizationDocument) []string {
+	var files []string
+	//nolint:staticcheck // kustomize still applies the deprecated patch fields
+	for _, p := range slices.Concat(d.Patches, d.PatchesJson6902) {
+		if p.Path != "" {
+			files = append(files, p.Path)
+		}
+	}
+	for _, p := range d.PatchesStrategicMerge { //nolint:staticcheck // kustomize still applies the deprecated patch fields
+		if s := string(p); !strings.Contains(s, "\n") {
+			files = append(files, s)
+		}
+	}
+	return files
 }
 
 type selfProduceBuilder struct {

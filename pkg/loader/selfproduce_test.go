@@ -182,6 +182,46 @@ func TestFinalizeIndex_OwnersOfFileResourcesEscape(t *testing.T) {
 	}
 }
 
+// TestFinalizeIndex_OwnersOfFilePatchEscape: a shared base patches a
+// HelmRelease from a file outside the owner's spec.path (maestra-io/fluxcd
+// #28837: omicron/base/trivy-operator-patch.yaml under a cluster-apps at
+// omicron/<cluster>). Every patch form must attribute its file to the owner,
+// or changed-only mode drops the only edit and the diff comes out empty.
+func TestFinalizeIndex_OwnersOfFilePatchEscape(t *testing.T) {
+	for name, patches := range map[string]string{
+		"patches":               "patches:\n  - path: hr-patch.yaml\n",
+		"patchesStrategicMerge": "patchesStrategicMerge:\n  - hr-patch.yaml\n",
+		"patchesJson6902":       "patchesJson6902:\n  - path: hr-patch.yaml\n    target: {kind: HelmRelease, name: app}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			testutil.WriteFile(t, dir, "omicron/cluster/kustomization.yaml",
+				"apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ../base\n")
+			testutil.WriteFile(t, dir, "omicron/base/kustomization.yaml",
+				"apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ../../base/app\n"+patches)
+			testutil.WriteFile(t, dir, "omicron/base/hr-patch.yaml",
+				"apiVersion: helm.toolkit.fluxcd.io/v2\nkind: HelmRelease\nmetadata:\n  name: app\nspec:\n  values: {tag: \"2\"}\n")
+			testutil.WriteFile(t, dir, "base/app/kustomization.yaml",
+				"apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - helm-release.yaml\n")
+			testutil.WriteFile(t, dir, "base/app/helm-release.yaml",
+				"apiVersion: helm.toolkit.fluxcd.io/v2\nkind: HelmRelease\nmetadata:\n  name: app\n")
+
+			s := store.New()
+			ks := &manifest.Kustomization{Name: "cluster-apps", Namespace: "flux-system", Path: "./omicron/cluster"}
+			s.AddObject(ks)
+			idx := rendererFixture(t, loaderFixture(s, nil), dir, nil)
+
+			const patch = "omicron/base/hr-patch.yaml"
+			if got := idx.Readers[patch]; !slices.Equal(got, []manifest.NamedResource{ks.Named()}) {
+				t.Errorf("Readers[%s] = %v, want [%s]", patch, got, ks.Named())
+			}
+			if !change.NewFilter(change.NewSet([]string{patch}), idx, s).ShouldReconcile(ks.Named()) {
+				t.Errorf("changed patch file did not select %s", ks.Named())
+			}
+		})
+	}
+}
+
 // TestFinalizeIndex_OwnersOfFileDirectFileEscape: an overlay lists an
 // existing resource file directly, by a path escaping its own directory. Even
 // though the escape-rejecting policy keeps it from being opened, it must still
