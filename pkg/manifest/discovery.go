@@ -14,6 +14,7 @@ type DiscoveryRecord struct {
 	Path              string          // Absolute raw resource path; empty for generated or projected records.
 	File              string          // Diff coordinate; generator records use the declaration file.
 	Refs              []NamedResource // Authored chart/source references under the discovery identity.
+	ChartPath         string          // Local chart directory of a HelmRelease, in diff coordinates; empty otherwise.
 	Parent            NamedResource   // Strict structural parent, excluding peers with the same claimed path.
 	Renderers         []NamedResource // Kustomizations whose resource graph emits this data identity.
 	DeclarationOwners []NamedResource // Kustomizations whose resource graph contains this producer declaration.

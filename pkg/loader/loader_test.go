@@ -3,6 +3,7 @@ package loader
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -773,6 +774,46 @@ spec:
 	want := manifest.NamedResource{Kind: manifest.KindOCIRepository, Namespace: "flux-system", Name: "envoy-gateway"}
 	if len(refs) != 1 || refs[0] != want {
 		t.Errorf("SourceRefs[HR] = %v; want [%v]", refs, want)
+	}
+}
+
+// TestLoader_DiscoveryOnlyRecordsLocalChartPath: a chart read from a Git source is
+// a directory the HelmRelease depends on, so the record names it for the change
+// filter. A chart from a registry, or a chart path that leaves the source, has none.
+func TestLoader_DiscoveryOnlyRecordsLocalChartPath(t *testing.T) {
+	for name, tc := range map[string]struct{ chart, kind, want string }{
+		"git":             {"./base/app/chart", manifest.KindGitRepository, "base/app/chart"},
+		"git_no_dot":      {"base/app/chart/", manifest.KindGitRepository, "base/app/chart"},
+		"git_escapes":     {"../other/chart", manifest.KindGitRepository, ""},
+		"helm_repository": {"app", manifest.KindHelmRepository, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			testutil.WriteFile(t, dir, "apps/helm-release.yaml", fmt.Sprintf(`apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: app
+  namespace: apps
+spec:
+  chart:
+    spec:
+      chart: %s
+      sourceRef:
+        kind: %s
+        name: flux-system
+        namespace: flux-system
+`, tc.chart, tc.kind))
+			l := loaderFixture(store.New(), nil)
+			l.Options.DiscoveryOnly = true
+			l.SourceRoot = dir
+			if _, err := l.Load(context.Background(), dir); err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			id := manifest.NamedResource{Kind: manifest.KindHelmRelease, Namespace: "apps", Name: "app"}
+			if got := l.Index.Records[id].ChartPath; got != tc.want {
+				t.Errorf("ChartPath = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 

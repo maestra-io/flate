@@ -846,6 +846,51 @@ func TestFilter_TransitiveDepsHelmReleaseViaHelmChartCRD(t *testing.T) {
 	}
 }
 
+// TestFilter_ReverseEdgeLocalChart: a file under a HelmRelease's local chart must
+// re-render that HelmRelease (fluxcd base/vault-server/chart/**). The chart sits
+// outside the owner's spec.path and holds no Flux object, so nothing else reaches
+// it. The owner is ancestor-only: the HR manifest is unchanged, and a primary owner
+// would pull its sibling in and, under a root Kustomization, the cluster.
+func TestFilter_ReverseEdgeLocalChart(t *testing.T) {
+	const chart = "base/app/chart"
+	hr := manifest.NamedResource{Kind: manifest.KindHelmRelease, Namespace: "app", Name: "app"}
+	sibling := manifest.NamedResource{Kind: manifest.KindHelmRelease, Namespace: "app", Name: "other"}
+	owner := &manifest.Kustomization{Name: "app", Namespace: "flux-system", Path: "cluster/app"}
+	objs := testutil.MapLister{owner.Named(): owner}
+	for _, tt := range []struct {
+		name    string
+		changed string
+		want    bool
+	}{
+		{name: "template", changed: chart + "/templates/cr.yaml", want: true},
+		{name: "chart_file", changed: chart + "/Chart.yaml", want: true},
+		{name: "same_prefix_other_dir", changed: chart + "-two/Chart.yaml"},
+		{name: "outside", changed: "base/app/README.md"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			index := filterFixture{files: map[manifest.NamedResource]string{
+				hr:            "cluster/app/helm-release.yaml",
+				sibling:       "cluster/app/other.yaml",
+				owner.Named(): "flux/app.yaml",
+			}, objects: objs, changed: NewSet([]string{tt.changed})}.index()
+			r := index.Records[hr]
+			r.ChartPath = chart
+			index.Records[hr] = r
+
+			f := NewFilter(NewSet([]string{tt.changed}), index, objs)
+			if got := f.ShouldReconcile(hr); got != tt.want {
+				t.Fatalf("ShouldReconcile(HR) = %v, want %v; keep=%v", got, tt.want, f.KeepNames())
+			}
+			if got := f.ShouldReconcile(owner.Named()); got != tt.want {
+				t.Errorf("ShouldReconcile(owner) = %v, want %v: it must render to emit the HR", got, tt.want)
+			}
+			if f.ShouldReconcile(sibling) {
+				t.Errorf("sibling HR must stay out: the owner is ancestor-only; keep=%v", f.KeepNames())
+			}
+		})
+	}
+}
+
 // TestFilter_ReverseEdgeCentralizedOCIRepository pins the reverse-edge
 // fix: when a centralized OCIRepository (its own Kustomization tree,
 // separate from the consuming HelmReleases) has its spec.ref.tag

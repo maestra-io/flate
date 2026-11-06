@@ -419,20 +419,24 @@ func (f *Filter) resolve() {
 	// is ancestor-only — it must render to emit the HR into the Store,
 	// but its own kustomize output is unchanged (the HR manifest is
 	// identical; only the downstream helm render moved), so it must not
-	// cascade unrelated siblings into keep (the #58/#204 rationale).
+	// cascade unrelated siblings into keep (the #58/#204 rationale). A file
+	// under a local chart is the same edge: the chart is a directory, so no
+	// source record names it.
 	for consumer, record := range records {
-		sources := record.Refs
-		for _, src := range sources {
+		changed := record.ChartPath != "" && f.changes.ContainsUnder(record.ChartPath)
+		for _, src := range record.Refs {
+			if changed {
+				break
+			}
 			sr, ok := f.index.Lookup(src)
-			sf := sr.File
-			if !ok || !f.changes.Contains(sf) {
-				continue
-			}
-			enqueuePrimary(consumer)
-			if cr, ok := f.index.Lookup(consumer); ok {
-				enqueueAncestorChain(cr.File, manifest.NamedResource{})
-			}
-			break
+			changed = ok && f.changes.Contains(sr.File)
+		}
+		if !changed {
+			continue
+		}
+		enqueuePrimary(consumer)
+		if cr, ok := f.index.Lookup(consumer); ok {
+			enqueueAncestorChain(cr.File, manifest.NamedResource{})
 		}
 	}
 

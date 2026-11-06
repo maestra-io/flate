@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strings"
 
+	"sigs.k8s.io/kustomize/api/types"
+
 	"github.com/home-operations/flate/pkg/manifest"
 	"github.com/home-operations/flate/pkg/store"
 )
@@ -356,9 +358,10 @@ func (w *graphWalker) walk(v graphVisit, yield func(graphVisit) bool) bool {
 			}
 		}
 	}
-	// A patch file changes the owner's render like a resource does, but it holds
-	// no objects of its own: record the reader, never read it as produced data.
-	for _, ref := range patchFiles(d) {
+	// A patch or generator file changes the owner's render like a resource does,
+	// but it holds no objects of its own: record the reader, never read it as
+	// produced data.
+	for _, ref := range inputFiles(d) {
 		resolved, ok := resolvePath(v.dir, ref)
 		if !ok {
 			continue
@@ -374,8 +377,9 @@ func (w *graphWalker) walk(v graphVisit, yield func(graphVisit) bool) bool {
 	return true
 }
 
-// patchFiles returns the file paths d's patches read; inline patches carry none.
-func patchFiles(d *kustomizationDocument) []string {
+// inputFiles returns the file paths d reads besides its resources: patches and
+// generator inputs. Inline patches carry none.
+func inputFiles(d *kustomizationDocument) []string {
 	var files []string
 	//nolint:staticcheck // kustomize still applies the deprecated patch fields
 	for _, p := range slices.Concat(d.Patches, d.PatchesJson6902) {
@@ -387,6 +391,18 @@ func patchFiles(d *kustomizationDocument) []string {
 		if s := string(p); !strings.Contains(s, "\n") {
 			files = append(files, s)
 		}
+	}
+	addGenerator := func(g types.GeneratorArgs) {
+		for _, f := range g.FileSources {
+			files = append(files, stripFileEntryKey(f))
+		}
+		files = append(files, g.EnvSources...)
+	}
+	for _, g := range d.ConfigMapGenerator {
+		addGenerator(g.GeneratorArgs)
+	}
+	for _, g := range d.SecretGenerator {
+		addGenerator(g.GeneratorArgs)
 	}
 	return files
 }
