@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 
 	"golang.org/x/sync/errgroup"
@@ -57,6 +58,24 @@ func (s *Set) Contains(rel string) bool {
 	}
 	_, ok := s.paths[filepath.ToSlash(rel)]
 	return ok
+}
+
+// ContainsUnder reports whether a file below the slash-separated directory dir is in
+// the change set. An empty dir names nothing; "." is the root, so any file is below it.
+func (s *Set) ContainsUnder(dir string) bool {
+	if s == nil || dir == "" {
+		return false
+	}
+	if dir == "." {
+		return len(s.paths) != 0
+	}
+	prefix := dir + "/"
+	for p := range s.paths {
+		if strings.HasPrefix(p, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // Detect returns the set of repo-relative file paths that differ between

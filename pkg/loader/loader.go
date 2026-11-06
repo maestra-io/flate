@@ -29,6 +29,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -683,6 +684,24 @@ func (l *Loader) recordDataFile(absPath string) error {
 	return nil
 }
 
+// localChartPath returns the directory of a chart read from a Git source, "." for a
+// chart at the source root, or "" for any other chart. An absolute path is relative
+// to the source root, and a path leaving the source names nothing the change set can
+// hold. FinalizeIndex drops it when the source is not the working tree.
+func localChartPath(c manifest.HelmChart) string {
+	if c.RepoKind != manifest.KindGitRepository {
+		return ""
+	}
+	dir := strings.TrimPrefix(path.Clean(filepath.ToSlash(c.Name)), "/")
+	if dir == "" {
+		return "."
+	}
+	if dir == ".." || strings.HasPrefix(dir, "../") {
+		return ""
+	}
+	return dir
+}
+
 // recordObject retains raw locations and authored source references for deferred admission.
 func (l *Loader) recordObject(obj manifest.BaseManifest, absPath string) {
 	if l.Index == nil {
@@ -695,6 +714,7 @@ func (l *Loader) recordObject(obj manifest.BaseManifest, absPath string) {
 		if o.Chart.RepoKind != "" && o.Chart.RepoName != "" {
 			r.Refs = make([]manifest.NamedResource, 1, 1+len(o.ValuesFrom))
 			r.Refs[0] = manifest.NamedResource{Kind: o.Chart.RepoKind, Namespace: o.Chart.RepoNamespace, Name: o.Chart.RepoName}
+			r.ChartPath = localChartPath(o.Chart)
 		}
 		for _, ref := range o.ValuesFrom {
 			r.Refs = append(r.Refs, manifest.NamedResource{Kind: ref.Kind, Namespace: o.Namespace, Name: ref.Name})

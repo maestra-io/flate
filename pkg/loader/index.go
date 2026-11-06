@@ -63,6 +63,9 @@ func (l *Loader) FinalizeIndex(repoRoot string, producers *manifest.ProducerInde
 	l.buildRenderers(repoRoot, producers)
 	l.fillOwners()
 	for id, r := range l.Index.Records {
+		if r.ChartPath != "" && !l.readsWorkingTree(r.Refs[0], repoRoot) {
+			r.ChartPath = ""
+		}
 		slices.SortFunc(r.Renderers, manifest.NamedResource.Compare)
 		slices.SortFunc(r.DeclarationOwners, manifest.NamedResource.Compare)
 		slices.SortFunc(r.Owners, manifest.NamedResource.Compare)
@@ -74,6 +77,14 @@ func (l *Loader) FinalizeIndex(repoRoot string, producers *manifest.ProducerInde
 	for _, ids := range l.Index.Readers {
 		slices.SortFunc(ids, manifest.NamedResource.Compare)
 	}
+}
+
+// readsWorkingTree reports whether source is the tree the change set was taken from.
+// A chart path in any other source names files the change set cannot hold.
+func (l *Loader) readsWorkingTree(source manifest.NamedResource, repoRoot string) bool {
+	ks := &manifest.Kustomization{SourceKind: source.Kind, SourceNamespace: source.Namespace, SourceName: source.Name}
+	_, pinned, external := SourceView(l.Store, ks, repoRoot)
+	return !pinned && !external
 }
 
 func (l *Loader) fillOwners() {

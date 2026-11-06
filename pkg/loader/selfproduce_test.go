@@ -222,6 +222,43 @@ func TestFinalizeIndex_OwnersOfFilePatchEscape(t *testing.T) {
 	}
 }
 
+// TestFinalizeIndex_OwnersOfFileInputEscape: a shared base reads a file that is
+// no resource: a generator input. It sits outside the
+// owner's spec.path, so no claim reaches it and only a graph reader can name the
+// owner (fluxcd base/falco/rules/*.yaml under omicron/<cluster>/falco). A file
+// that was never attributed left a changed-only render silently without it.
+func TestFinalizeIndex_OwnersOfFileInputEscape(t *testing.T) {
+	const input = "base/app/rules/input.yaml"
+	for name, field := range map[string]string{
+		"configMapGenerator_files":      "configMapGenerator:\n  - name: rules\n    files:\n      - rules/input.yaml\n",
+		"configMapGenerator_keyed_file": "configMapGenerator:\n  - name: rules\n    files:\n      - key.yaml=rules/input.yaml\n",
+		"configMapGenerator_envs":       "configMapGenerator:\n  - name: rules\n    envs:\n      - rules/input.yaml\n",
+		"configMapGenerator_env":        "configMapGenerator:\n  - name: rules\n    env: rules/input.yaml\n",
+		"secretGenerator_files":         "secretGenerator:\n  - name: rules\n    files:\n      - rules/input.yaml\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			testutil.WriteFile(t, dir, "omicron/cluster/app/kustomization.yaml",
+				"apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - ../../../base/app\n")
+			testutil.WriteFile(t, dir, "base/app/kustomization.yaml",
+				"apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\n"+field)
+			testutil.WriteFile(t, dir, input, "key: value\n")
+
+			s := store.New()
+			ks := &manifest.Kustomization{Name: "app", Namespace: "flux-system", Path: "./omicron/cluster/app"}
+			s.AddObject(ks)
+			idx := rendererFixture(t, loaderFixture(s, nil), dir, nil)
+
+			if got := idx.Readers[input]; !slices.Equal(got, []manifest.NamedResource{ks.Named()}) {
+				t.Errorf("Readers[%s] = %v, want [%s]", input, got, ks.Named())
+			}
+			if !change.NewFilter(change.NewSet([]string{input}), idx, s).ShouldReconcile(ks.Named()) {
+				t.Errorf("changed input did not select %s", ks.Named())
+			}
+		})
+	}
+}
+
 // TestFinalizeIndex_OwnersOfFileDirectFileEscape: an overlay lists an
 // existing resource file directly, by a path escaping its own directory. Even
 // though the escape-rejecting policy keeps it from being opened, it must still
