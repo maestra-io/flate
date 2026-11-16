@@ -1,0 +1,9 @@
+# Upstream lines only (identical on the upstream default branch, or written by an upstream
+# commit): upstream test fixtures / docs / vendored code, not our credentials. issues-maestra#1649
+fef66c989800169a68b89acd432187c729cf7dbc:pkg/source/oci/auth_test.go:generic-api-key:270
+fef66c989800169a68b89acd432187c729cf7dbc:pkg/source/oci/auth_test.go:generic-api-key:281
+fef66c989800169a68b89acd432187c729cf7dbc:pkg/source/oci/auth_test.go:generic-api-key:289
+pkg/source/oci/auth_test.go:generic-api-key:148
+pkg/source/oci/auth_test.go:generic-api-key:271
+pkg/source/oci/auth_test.go:generic-api-key:282
+pkg/source/oci/auth_test.go:generic-api-key:290
