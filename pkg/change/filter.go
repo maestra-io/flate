@@ -767,6 +767,22 @@ func transitiveDepsOf(obj manifest.BaseManifest) []manifest.NamedResource {
 		return []manifest.NamedResource{{
 			Kind: o.SourceRef.Kind, Namespace: o.Namespace, Name: o.SourceRef.Name,
 		}}
+
+	case *manifest.RawObject:
+		// An ArtifactGenerator copies from its sources: they must fetch for
+		// it to build. A malformed one is left for its reconcile to report.
+		if !manifest.IsArtifactGenerator(o) {
+			return nil
+		}
+		g, err := manifest.ParseArtifactGenerator(o)
+		if err != nil {
+			return nil
+		}
+		out := make([]manifest.NamedResource, 0, len(g.Sources))
+		for _, s := range g.Sources {
+			out = append(out, s.Ref)
+		}
+		return out
 	}
 	return nil
 }

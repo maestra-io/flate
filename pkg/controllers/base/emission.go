@@ -51,6 +51,11 @@ func (c *Controller) Emit(parent manifest.NamedResource, docs []map[string]any, 
 		id := obj.Named()
 		switch {
 		case !isTrackedChild(obj, helmRelease):
+			// A render-emitted generator has no discovery record linking its
+			// ExternalArtifacts back to it, so only its emitter can keep it.
+			if manifest.IsArtifactGenerator(obj) {
+				c.KeepEmitted(parent, obj)
+			}
 			c.Store.AddObject(obj)
 		case id.Kind == manifest.KindKustomization || id.Kind == manifest.KindHelmRelease:
 			continue
