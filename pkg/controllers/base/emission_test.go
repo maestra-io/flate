@@ -193,3 +193,36 @@ func TestEmit_SelfCopyIsNotPublished(t *testing.T) {
 		t.Errorf("self-copy has owner %v", owner)
 	}
 }
+
+// A generator inside a primary emitter's render (a service OCI bundle) has no
+// discovery record: the emitter alone keeps it, and its sources, before it
+// arrives, so changed-only mode builds the ExternalArtifacts its sibling
+// HelmReleases chartRef.
+func TestEmit_KeepsArtifactGenerator(t *testing.T) {
+	s := store.New()
+	c := New(s, nil, "test")
+	parent := manifest.NamedResource{Kind: manifest.KindKustomization, Namespace: "apps", Name: "svc"}
+	generator := manifest.NamedResource{Kind: manifest.KindArtifactGenerator, Namespace: "apps", Name: "svc"}
+	bundle := manifest.NamedResource{Kind: manifest.KindOCIRepository, Namespace: "apps", Name: "svc-manifests"}
+	c.SetFilter(change.NewFilter(change.NewSet([]string{"svc.yaml"}), &manifest.DiscoveryIndex{
+		Records: map[manifest.NamedResource]manifest.DiscoveryRecord{parent: {File: "svc.yaml"}},
+	}, s))
+	keptAtArrival := false
+	s.AddListener(store.EventObjectAdded, func(id manifest.NamedResource, _ any) {
+		if id == generator {
+			keptAtArrival = c.Filter().ShouldReconcile(generator) && c.Filter().ShouldReconcile(bundle)
+		}
+	}, false)
+	c.Emit(parent, []map[string]any{{
+		"apiVersion": "source.extensions.fluxcd.io/v1beta1",
+		"kind":       manifest.KindArtifactGenerator,
+		"metadata":   map[string]any{"name": "svc"},
+		"spec": map[string]any{
+			"sources":   []any{map[string]any{"alias": "bundle", "kind": manifest.KindOCIRepository, "name": "svc-manifests"}},
+			"artifacts": []any{map[string]any{"name": "svc-chart", "copy": []any{map[string]any{"from": "@bundle/charts/svc/", "to": "@artifact/"}}}},
+		},
+	}}, false, true)
+	if !keptAtArrival {
+		t.Errorf("generator or its source not kept when the generator arrived")
+	}
+}

@@ -203,12 +203,92 @@ spec:
 	})
 }
 
+// bundleFixture is the service-bundle shape: Kustomization flux-system/svc
+// renders, from GitRepository svc-manifests (a separate repository standing in
+// for a service's OCI bundle, so discovery never sees its files), an
+// ArtifactGenerator over that same source and a HelmRelease whose chartRef is
+// the ExternalArtifact the generator publishes. Returns the cluster
+// repository root, committed.
+func bundleFixture(t *testing.T) string {
+	t.Helper()
+	bundle := t.TempDir()
+	bundleRepo := gitInit(t, bundle)
+	for path, text := range map[string]string{
+		"kustomization.yaml":           "resources:\n  - generator.yaml\n  - hr.yaml\n",
+		"generator.yaml":               "apiVersion: source.extensions.fluxcd.io/v1beta1\nkind: ArtifactGenerator\nmetadata:\n  name: svc\nspec:\n  sources:\n    - alias: bundle\n      kind: GitRepository\n      name: svc-manifests\n  artifacts:\n    - name: svc-chart\n      copy:\n        - from: \"@bundle/charts/app/\"\n          to: \"@artifact/\"\n",
+		"hr.yaml":                      "apiVersion: helm.toolkit.fluxcd.io/v2\nkind: HelmRelease\nmetadata:\n  name: app\n  namespace: apps\nspec:\n  interval: 10m\n  chartRef:\n    kind: ExternalArtifact\n    name: svc-chart\n    namespace: flux-system\n",
+		"charts/app/Chart.yaml":        "apiVersion: v2\nname: app\nversion: 1.0.0\n",
+		"charts/app/templates/cm.yaml": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: from-chart\n",
+	} {
+		testutil.WriteFile(t, bundle, path, text)
+	}
+	gitCommitAll(t, bundleRepo)
+	root := t.TempDir()
+	repo := gitInit(t, root)
+	for path, text := range map[string]string{
+		"cluster/svc-source.yaml": "apiVersion: source.toolkit.fluxcd.io/v1\nkind: GitRepository\nmetadata:\n  name: svc-manifests\n  namespace: flux-system\nspec:\n  interval: 10m\n  url: file://" + filepath.ToSlash(bundle) + "\n  ref:\n    branch: master\n",
+		"cluster/svc.yaml": strings.NewReplacer("%NAME%", "svc", "%KIND%", "GitRepository", "%SOURCE%", "svc-manifests",
+			"./apps/%NAME%", "./").Replace(leafKustomization),
+		"cluster/other.yaml": strings.NewReplacer("%NAME%", "other", "%KIND%", "GitRepository", "%SOURCE%", "flux-system",
+			"./apps/%NAME%", "./other").Replace(leafKustomization),
+		"other/kustomization.yaml": "resources:\n  - cm.yaml\n",
+		"other/cm.yaml":            "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: other\n  namespace: apps\ndata:\n  value: before\n",
+	} {
+		testutil.WriteFile(t, root, path, text)
+	}
+	gitCommitAll(t, repo)
+	return root
+}
+
+// TestE2E_ChangedOnlyBundleArtifactGenerator: a changed-only render that
+// reaches a bundle Kustomization emitting an ArtifactGenerator and a chartRef
+// HelmRelease builds the generator and renders the chart; a change elsewhere
+// renders none of it.
+func TestE2E_ChangedOnlyBundleArtifactGenerator(t *testing.T) {
+	root := bundleFixture(t)
+	if full := runCLIStdout(t, "build", "all", "--path", filepath.Join(root, "cluster")); !strings.Contains(full, "name: from-chart") {
+		t.Fatalf("the full render lacks the chart:\n%s", full)
+	}
+	mutateFile(t, filepath.Join(root, "cluster/svc-source.yaml"), "interval: 10m", "interval: 5m")
+	out := runCLIStdout(t, "build", "all", "--path", filepath.Join(root, "cluster"), "--base", "HEAD")
+	if !strings.Contains(out, "name: from-chart") || strings.Contains(out, "name: other\n") {
+		t.Errorf("changed bundle source: want the chart and not the unchanged Kustomization:\n%s", out)
+	}
+	root = bundleFixture(t)
+	mutateFile(t, filepath.Join(root, "other/cm.yaml"), "value: before", "value: after")
+	if out := runCLIStdout(t, "build", "all", "--path", filepath.Join(root, "cluster"), "--base", "HEAD"); strings.Contains(out, "from-chart") {
+		t.Errorf("a change outside the bundle rendered its chart:\n%s", out)
+	}
+}
+
+// TestE2E_DiffArtifactGenerator: flate diff renders both trees changed-only
+// against each other, so it must build a bundle's generator on both sides,
+// and a Kustomization moved from its GitRepository to an in-tree generator's
+// ExternalArtifact of the same files diffs as its own spec change only.
+func TestE2E_DiffArtifactGenerator(t *testing.T) {
+	t.Run("bundle generator on both sides", func(t *testing.T) {
+		root := bundleFixture(t)
+		mutateFile(t, filepath.Join(root, "cluster/svc-source.yaml"), "interval: 10m", "interval: 5m")
+		runCLI(t, "diff", "all", "--path", filepath.Join(root, "cluster"), "--base", "HEAD")
+	})
+	t.Run("sourceRef GitRepository to ExternalArtifact", func(t *testing.T) {
+		root := generatorFixture(t, "GitRepository", nil)
+		for _, leaf := range generatorLeaves {
+			mutateFile(t, filepath.Join(root, "cluster", leaf+".yaml"), "kind: GitRepository\n    name: flux-system", "kind: ExternalArtifact\n    name: platform")
+		}
+		out := runCLI(t, "diff", "all", "--path", filepath.Join(root, "cluster"), "--base", "HEAD")
+		if strings.Contains(out, "kind: ConfigMap") {
+			t.Errorf("the switched Kustomizations' objects differ:\n%s", out)
+		}
+	})
+}
+
 // TestE2E_ChangedOnlyArtifactGeneratorInputs: a change to a file the
 // generator copies, or to the generator, re-renders its consumers; a change
 // outside every copy operation re-renders none of them.
 func TestE2E_ChangedOnlyArtifactGeneratorInputs(t *testing.T) {
 	other := map[string]string{
-		"cluster/other.yaml":       strings.NewReplacer("%NAME%", "other", "%KIND%", "GitRepository", "%SOURCE%", "flux-system", "./apps/other", "./other").Replace(leafKustomization),
+		"cluster/other.yaml":       strings.NewReplacer("%NAME%", "other", "%KIND%", "GitRepository", "%SOURCE%", "flux-system", "./apps/%NAME%", "./other").Replace(leafKustomization),
 		"other/kustomization.yaml": "resources:\n  - cm.yaml\n",
 		"other/cm.yaml":            "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: other\n  namespace: apps\ndata:\n  value: before\n",
 	}
