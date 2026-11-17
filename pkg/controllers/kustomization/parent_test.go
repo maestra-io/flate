@@ -52,6 +52,7 @@ func TestCollectDeps_SubstitutionProducers(t *testing.T) {
 		name                    string
 		ref                     manifest.SubstituteReference
 		producers, owners, want []manifest.NamedResource
+		indexed                 bool
 	}{
 		{name: "required ConfigMap", ref: manifest.SubstituteReference{Kind: manifest.KindConfigMap, Name: "settings"}, producers: []manifest.NamedResource{producer}, want: []manifest.NamedResource{cm, producer}},
 		{name: "Owners-only ConfigMap in full mode", ref: manifest.SubstituteReference{Kind: manifest.KindConfigMap, Name: "settings"}, owners: []manifest.NamedResource{producer}, want: []manifest.NamedResource{cm, producer}},
@@ -61,6 +62,8 @@ func TestCollectDeps_SubstitutionProducers(t *testing.T) {
 		{name: "unknown Secret", ref: manifest.SubstituteReference{Kind: manifest.KindSecret, Name: "settings"}},
 		{name: "missing ConfigMap", ref: manifest.SubstituteReference{Kind: manifest.KindConfigMap, Name: "settings"}, want: []manifest.NamedResource{cm}},
 		{name: "self producer", ref: manifest.SubstituteReference{Kind: manifest.KindConfigMap, Name: "settings"}, producers: []manifest.NamedResource{consumer}},
+		{name: "self-claimed file-indexed ConfigMap", ref: manifest.SubstituteReference{Kind: manifest.KindConfigMap, Name: "settings"}, owners: []manifest.NamedResource{consumer}, indexed: true, want: []manifest.NamedResource{cm}},
+		{name: "self-claimed file-indexed Secret", ref: manifest.SubstituteReference{Kind: manifest.KindSecret, Name: "settings"}, owners: []manifest.NamedResource{consumer}, indexed: true},
 		{name: "empty name", ref: manifest.SubstituteReference{Kind: manifest.KindConfigMap}, producers: []manifest.NamedResource{producer}},
 		{name: "unknown kind", ref: manifest.SubstituteReference{Kind: "Junk", Name: "settings"}, producers: []manifest.NamedResource{producer}},
 	} {
@@ -68,7 +71,7 @@ func TestCollectDeps_SubstitutionProducers(t *testing.T) {
 			id := manifest.NamedResource{Kind: tc.ref.Kind, Namespace: consumer.Namespace, Name: tc.ref.Name}
 			index := &manifest.DiscoveryIndex{Records: map[manifest.NamedResource]manifest.DiscoveryRecord{id: {Renderers: tc.producers, Owners: tc.owners}}}
 			c := New(store.New(), nil, nil, false)
-			c.Configure(Options{Index: index})
+			c.Configure(Options{Existence: indexedOrderingDeps{id: tc.indexed}, Index: index})
 			ks := &manifest.Kustomization{Name: consumer.Name, Namespace: consumer.Namespace, PostBuildSubstituteFrom: []manifest.SubstituteReference{tc.ref}}
 			var got []manifest.NamedResource
 			for _, dep := range c.collectDeps(ks) {

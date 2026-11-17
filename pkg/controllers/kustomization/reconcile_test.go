@@ -433,3 +433,87 @@ func TestReconcile_DependsOnFailed(t *testing.T) {
 		t.Error("expected failure message from dep cascade")
 	}
 }
+
+// promoteOnDemand is an ExistenceLookup whose file-indexed objects reach the
+// store only when depwait promotes them, the lazy order a cluster-sized run
+// produces when no other consumer has promoted the object yet.
+type promoteOnDemand struct {
+	st    *store.Store
+	files map[manifest.NamedResource]manifest.BaseManifest
+}
+
+func (p promoteOnDemand) IsFileIndexed(id manifest.NamedResource) bool { return p.files[id] != nil }
+func (p promoteOnDemand) Promote(id manifest.NamedResource) bool {
+	obj := p.files[id]
+	if obj == nil {
+		return false
+	}
+	if p.st.GetObject(id) == nil {
+		p.st.AddObject(obj)
+	}
+	return true
+}
+
+// TestReconcile_SubstituteFromPrefixClaimedConfigMap pins the ordering for a
+// substituteFrom ConfigMap whose only discovered owner is a path-prefix claim
+// by the consumer itself (a KS whose spec.path is the cluster root, with the
+// ConfigMap in the entrypoint's flux-system/ directory that its kustomization
+// does not render). The ConfigMap is absent from the store when the consumer
+// first reconciles: the consumer must wait for it, never render without it.
+func TestReconcile_SubstituteFromPrefixClaimedConfigMap(t *testing.T) {
+	root := t.TempDir()
+	testutil.WriteFile(t, root, "cluster/kustomization.yaml", "resources:\n- app.yaml\n")
+	testutil.WriteFile(t, root, "cluster/app.yaml",
+		"apiVersion: v1\nkind: ConfigMap\nmetadata: {name: app, namespace: default}\ndata: {registry: \"${REGISTRY}\"}\n")
+	testutil.WriteFile(t, root, "cluster/flux-system/vars.yaml",
+		"apiVersion: v1\nkind: ConfigMap\nmetadata: {name: vars, namespace: flux-system}\ndata: {REGISTRY: registry.example}\n")
+
+	s := store.New()
+	bootstrap := &manifest.GitRepository{Name: "flux-system", Namespace: "flux-system", URL: "file://" + root}
+	s.AddObject(bootstrap)
+	s.SetArtifact(bootstrap.Named(), &store.SourceArtifact{Kind: manifest.KindGitRepository, URL: "file://" + root, LocalPath: root})
+	s.UpdateStatus(bootstrap.Named(), store.StatusReady, "ready")
+
+	ks := &manifest.Kustomization{
+		Name: "cluster-apps", Namespace: "flux-system", Path: "./cluster",
+		SourceRef:  kustomizev1.CrossNamespaceSourceReference{Kind: manifest.KindGitRepository, Name: "flux-system", Namespace: "flux-system"},
+		SourceKind: manifest.KindGitRepository, SourceName: "flux-system", SourceNamespace: "flux-system",
+		PostBuild:               &kustomizev1.PostBuild{SubstituteFrom: []kustomizev1.SubstituteReference{{Kind: manifest.KindConfigMap, Name: "vars"}}},
+		PostBuildSubstituteFrom: []manifest.SubstituteReference{{Kind: manifest.KindConfigMap, Name: "vars"}},
+		Contents:                map[string]any{},
+	}
+	vars := &manifest.ConfigMap{Name: "vars", Namespace: "flux-system", Data: map[string]any{"REGISTRY": "registry.example"}}
+	index := &manifest.DiscoveryIndex{Records: map[manifest.NamedResource]manifest.DiscoveryRecord{
+		vars.Named(): {File: "cluster/flux-system/vars.yaml", Owners: []manifest.NamedResource{ks.Named()}},
+	}}
+
+	tasks := task.NewBounded(0)
+	c := New(s, tasks, kustomize.NewTreeCache(), true)
+	c.Configure(Options{
+		Existence: promoteOnDemand{st: s, files: map[manifest.NamedResource]manifest.BaseManifest{vars.Named(): vars}},
+		Index:     index,
+	})
+	c.Start(t.Context())
+	t.Cleanup(func() {
+		c.Close()
+		tasks.BlockTillDone()
+	})
+
+	s.AddObject(ks)
+	if info := dispatchToFixpoint(t, c, s, ks.Named()); info.Status != store.StatusReady {
+		t.Fatalf("status = %+v, want StatusReady", info)
+	}
+	art, _ := s.GetArtifact(ks.Named()).(*store.KustomizationArtifact)
+	if art == nil {
+		t.Fatal("KustomizationArtifact not stored")
+	}
+	var got any
+	for _, doc := range art.Manifests {
+		if doc["kind"] == "ConfigMap" {
+			got = doc["data"].(map[string]any)["registry"]
+		}
+	}
+	if got != "registry.example" {
+		t.Fatalf("rendered registry = %v, want registry.example", got)
+	}
+}

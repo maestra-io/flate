@@ -627,8 +627,8 @@ func stripMatchingQuotes(value string) (string, bool) {
 
 // ExpandPostBuildSubstituteReference resolves substituteFrom references
 // against the provider and updates ks.PostBuildSubstitute (and its raw
-// Contents). Missing references are logged (Secrets silently) and the
-// substitution proceeds with what's available.
+// Contents). A missing non-optional ConfigMap is an error; a missing Secret
+// or optional reference is skipped.
 func ExpandPostBuildSubstituteReference(ks *manifest.Kustomization, p Provider) error {
 	return ExpandPostBuildSubstituteReferenceWithSubstitutions(ks, p, nil)
 }
@@ -662,9 +662,12 @@ func ExpandPostBuildSubstituteReferenceWithSubstitutions(ks *manifest.Kustomizat
 			return err
 		}
 		if data == nil {
-			if !ref.Optional && ref.Kind != manifest.KindSecret {
-				slog.Debug("values: SubstituteReference not found",
-					"id", ks.Named().String(), "ref", ref.Name)
+			// kustomize-controller's LoadVariables fails the reconcile on a
+			// missing non-optional ConfigMap. A Secret may exist only in cluster
+			// state (SOPS, ExternalSecret), so a missing one stays advisory
+			// (UnreadableSubstituteSecrets).
+			if !ref.Optional && ref.Kind == manifest.KindConfigMap {
+				return fmt.Errorf("%w: substitute from 'ConfigMap/%s'", manifest.ErrObjectNotFound, ref.Name)
 			}
 			continue
 		}
