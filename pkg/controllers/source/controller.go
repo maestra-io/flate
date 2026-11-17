@@ -1,7 +1,8 @@
 // Package source reconciles Flux source CRs (GitRepository,
 // OCIRepository, Bucket, ExternalArtifact, HelmRepository) into on-disk
-// artifacts via per-kind Fetcher implementations from pkg/source, then
-// publishes the result to the Store. Mirrors
+// artifacts via per-kind Fetcher implementations from pkg/source, and
+// source-watcher ArtifactGenerators into the ExternalArtifacts they
+// generate, then publishes the result to the Store. Mirrors
 // pkg/controllers/{kustomization,helmrelease}.
 //
 // The controller does not know about individual source kinds — it
@@ -105,8 +106,12 @@ func (c *Controller) HasFetcher(kind string) bool {
 // foreign CRD reusing one (seaweed.seaweedfs.com Bucket) parses to a
 // RawObject that the kind's Fetcher would reject as an unexpected payload.
 // An id absent from the store still counts as ours — reporting the
-// vanished object is the controller's job.
+// vanished object is the controller's job. An ArtifactGenerator is a
+// RawObject and is ours only while stored under source-watcher's group.
 func (c *Controller) Owns(id manifest.NamedResource) bool {
+	if id.Kind == manifest.KindArtifactGenerator {
+		return manifest.IsArtifactGenerator(c.Store.GetObject(id))
+	}
 	if !c.HasFetcher(id.Kind) {
 		return false
 	}
@@ -131,6 +136,9 @@ func (c *Controller) ReconcileNode(ctx context.Context, id manifest.NamedResourc
 // Ready+"skipped: ..." status; ErrBlocked parks the fetch for a dependency
 // retry; any other error yields Failed.
 func (c *Controller) reconcile(ctx context.Context, obj manifest.BaseManifest, level manifest.DrainLevel) error {
+	if raw, ok := obj.(*manifest.RawObject); ok {
+		return c.reconcileGenerator(ctx, raw, level)
+	}
 	id := obj.Named()
 	// Dispatcher ownership guarantees a fetcher for this kind.
 	fetcher := c.Fetchers[id.Kind]

@@ -72,7 +72,8 @@ func (o *Orchestrator) dagSchedulable(id manifest.NamedResource) bool {
 }
 
 // seedNodes returns every file-loaded reconcilable + ResourceSet + source
-// object currently in the store — the scheduler's initial frontier.
+// object (ArtifactGenerators included) currently in the store — the
+// scheduler's initial frontier.
 // ResourceSetInputProviders are NOT seeded: they are pure data, not
 // runnable nodes (see dagSchedulable).
 func (o *Orchestrator) seedNodes() []manifest.NamedResource {
@@ -90,6 +91,11 @@ func (o *Orchestrator) seedNodes() []manifest.NamedResource {
 			if id := obj.Named(); o.src.Owns(id) {
 				ids = append(ids, id)
 			}
+		}
+	}
+	for _, obj := range o.store.ListObjects(manifest.KindArtifactGenerator) {
+		if id := obj.Named(); o.src.Owns(id) {
+			ids = append(ids, id)
 		}
 	}
 	return ids

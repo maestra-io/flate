@@ -224,7 +224,8 @@ func (d *discoverer) loadManifests(ctx context.Context, repoRoot string) error {
 			}
 			sourceRoot, _, external := loader.SourceView(d.cfg.Store, ks, repoRoot)
 			ref := manifest.NamedResource{Kind: ks.SourceKind, Namespace: ks.SourceNamespace, Name: ks.SourceName}
-			if external && ks.SourceKind == manifest.KindOCIRepository && d.cfg.Store.GetObject(ref) == nil && d.cfg.Store.GetArtifact(ref) == nil {
+			if external && (ks.SourceKind == manifest.KindOCIRepository || ks.SourceKind == manifest.KindExternalArtifact) &&
+				d.cfg.Store.GetObject(ref) == nil && d.cfg.Store.GetArtifact(ref) == nil {
 				continue
 			}
 			target := filepath.Join(sourceRoot, filepath.FromSlash(stripDotSlash(ks.Path)))

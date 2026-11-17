@@ -616,7 +616,7 @@ func (l *Loader) loadFile(path string) (int, error) {
 	}
 	count := 0
 	for _, obj := range objs {
-		if _, raw := obj.(*manifest.RawObject); raw {
+		if manifest.IsRawObject(obj) && !manifest.IsArtifactGenerator(obj) {
 			continue
 		}
 		if hr, ok := obj.(*manifest.HelmRelease); ok {
@@ -761,6 +761,9 @@ func (l *Loader) fileCoordinate(absPath string) string {
 //     already-known (otherwise every GitRepository gets aliased to
 //     the working tree, which silently redirects every KS's render
 //     to the wrong source root).
+//   - ArtifactGenerator — a source producer (RawObject): one in the
+//     bootstrap path is applied by no Kustomization flate renders, yet
+//     its ExternalArtifacts feed Kustomizations loaded beside it.
 //
 // HelmReleases, ConfigMaps, Secrets, and other reconcilables flow
 // from KS render output via emitRenderedChildren — or, when no KS
@@ -779,7 +782,7 @@ func isDiscoveryKind(obj manifest.BaseManifest) bool {
 		*manifest.ExternalArtifact:
 		return true
 	}
-	return false
+	return manifest.IsArtifactGenerator(obj)
 }
 
 func isManifestFile(path string) bool {

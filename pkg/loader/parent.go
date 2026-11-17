@@ -67,7 +67,9 @@ func buildClaims(s *store.Store, repoRoot string, documents documentReader, kss 
 }
 
 // SourceView classifies a Kustomization's local source root, committed pin and
-// external ownership. Missing Git source objects retain bootstrap alias semantics.
+// external ownership. Missing Git source objects retain bootstrap alias semantics;
+// OCIRepository and ExternalArtifact sources are external even when absent (an
+// ExternalArtifact never has an object: its ArtifactGenerator builds it).
 // External-sourced Kustomizations MUST NOT claim unrelated working-tree files.
 func SourceView(s *store.Store, ks *manifest.Kustomization, repoRoot string) (root string, pinned, external bool) {
 	ref := manifest.NamedResource{Kind: ks.SourceKind, Namespace: ks.SourceNamespace, Name: ks.SourceName}
@@ -82,5 +84,6 @@ func SourceView(s *store.Store, ks *manifest.Kustomization, repoRoot string) (ro
 			return repoRoot, false, false
 		}
 	}
-	return repoRoot, false, s.GetObject(ref) != nil || ks.SourceKind == manifest.KindOCIRepository
+	return repoRoot, false, s.GetObject(ref) != nil || ks.SourceKind == manifest.KindOCIRepository ||
+		ks.SourceKind == manifest.KindExternalArtifact
 }

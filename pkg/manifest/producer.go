@@ -62,11 +62,11 @@ type ProducerTarget struct {
 //     BUCKET_NAME); a consuming HelmRelease valuesFrom (or substituteFrom)
 //     references them by the claim's name and neither exists in the offline tree.
 //   - ArtifactGenerator (source.extensions.fluxcd.io, source-watcher): one
-//     ExternalArtifact per spec.artifacts[].name, declaring no keys. A
-//     HelmRelease chartRef to one is skipped offline, since only the live
-//     controller publishes the artifact.
+//     ExternalArtifact per spec.artifacts[].name, declaring no keys, in
+//     spec.artifacts[].namespace when set. The source controller builds each
+//     one offline from the generator's sources.
 //
-// Every target lands in the producer's namespace.
+// Every other target lands in the producer's namespace.
 //
 // Coverage caveat: this reads the producer's RAW declared name. A kustomize
 // namePrefix / nameSuffix / replacement that rewrites the generated object's
@@ -92,12 +92,16 @@ func ProducerTargets(raw *RawObject) []ProducerTarget {
 		return []ProducerTarget{raw.secret(name, spec.mapKeys("encryptedData"))}
 	case "ObjectBucketClaim":
 		return []ProducerTarget{raw.secret(raw.Name, nil), raw.target(KindConfigMap, raw.Name, nil)}
-	case "ArtifactGenerator":
+	case KindArtifactGenerator:
 		var targets []ProducerTarget
-		for _, name := range spec.entryKeys("artifacts", "name") {
-			targets = append(targets, raw.target(KindExternalArtifact, name, nil))
+		for _, a := range spec.entries("artifacts") {
+			if name := a.str("name"); name != "" {
+				targets = append(targets, ProducerTarget{
+					Kind: KindExternalArtifact, Namespace: cmp.Or(a.str("namespace"), raw.Namespace), Name: name})
+			}
 		}
-		return targets
+		slices.SortFunc(targets, func(a, b ProducerTarget) int { return a.Compare(b.NamedResource) })
+		return slices.CompactFunc(targets, func(a, b ProducerTarget) bool { return a.NamedResource == b.NamedResource })
 	default:
 		return nil
 	}

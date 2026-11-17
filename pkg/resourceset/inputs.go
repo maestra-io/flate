@@ -142,6 +142,26 @@ func collectProviderInputs(rs *manifest.ResourceSet, resolve ProviderResolver) (
 	return groups, nil
 }
 
+// OfflineProviderTypes returns the sorted distinct types of rs's inputsFrom
+// providers that read a remote API and carry no exported inputs, so they
+// contribute nothing offline.
+func OfflineProviderTypes(rs *manifest.ResourceSet, resolve ProviderResolver) ([]string, error) {
+	var types []string
+	for _, ref := range rs.InputsFrom {
+		matches, err := resolve(ref, rs.Namespace)
+		if err != nil {
+			return nil, fmt.Errorf("inputsFrom %q: %w", ref.Name, err)
+		}
+		for _, p := range matches {
+			if p != nil && p.Type != "" && p.Type != fluxopv1.InputProviderStatic && len(p.Status.ExportedInputs) == 0 {
+				types = append(types, p.Type)
+			}
+		}
+	}
+	slices.Sort(types)
+	return slices.Compact(types), nil
+}
+
 // providerBlock builds the `provider` block stamped onto each input set
 // so templates can recover which CR sourced the values.
 func providerBlock(kind, name, namespace string) map[string]any {

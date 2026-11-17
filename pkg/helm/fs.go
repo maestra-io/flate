@@ -13,7 +13,19 @@ import (
 	chart "helm.sh/helm/v4/pkg/chart/v2"
 	"helm.sh/helm/v4/pkg/chart/v2/loader"
 	"helm.sh/helm/v4/pkg/ignore"
+
+	"github.com/home-operations/flate/pkg/manifest"
 )
+
+// externalArtifactChartPath locates a chartRef ExternalArtifact's chart the
+// way helm-controller does: it loads the artifact as a chart archive, so the
+// chart is the top-level directory and a root Chart.yaml is rejected.
+func externalArtifactChartPath(input fs.FS) (string, error) {
+	if _, err := fs.Stat(input, chartYamlFilename); err == nil {
+		return "", fmt.Errorf("%w: chart yaml not in base directory", manifest.ErrInput)
+	}
+	return chartPathInFS(input)
+}
 
 func chartPathInFS(input fs.FS) (string, error) {
 	if _, err := fs.Stat(input, chartYamlFilename); err == nil {

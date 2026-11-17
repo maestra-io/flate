@@ -721,6 +721,58 @@ metadata:
 	}
 }
 
+// TestRender_InputsFrom_NoProviderInputsRendersNothing: providers that
+// export no inputs leave the ResourceSet with zero objects, as flux-operator
+// reconciles an empty set; the template is never executed without inputs.
+// Static providers still contribute, and OfflineProviderTypes names only the
+// remote-API providers that export nothing.
+func TestRender_InputsFrom_NoProviderInputsRendersNothing(t *testing.T) {
+	pulls := &manifest.ResourceSetInputProvider{Name: "pulls", Namespace: "apps", Type: fluxopv1.InputProviderGitHubPullRequest}
+	tags := &manifest.ResourceSetInputProvider{Name: "tags", Namespace: "apps", Type: fluxopv1.InputProviderOCIArtifactTag}
+	static := &manifest.ResourceSetInputProvider{Name: "static", Namespace: "apps", Type: fluxopv1.InputProviderStatic,
+		DefaultValues: fluxopv1.ResourceSetInput{"id": jsonTmpl(t, `"fixed"`)}}
+	cases := map[string]struct {
+		providers []*manifest.ResourceSetInputProvider
+		wantNames []string
+		wantTypes []string
+	}{
+		"remote providers only":       {providers: []*manifest.ResourceSetInputProvider{pulls, tags, pulls}, wantTypes: []string{"GitHubPullRequest", "OCIArtifactTag"}},
+		"static provider contributes": {providers: []*manifest.ResourceSetInputProvider{pulls, static}, wantNames: []string{"env-fixed"}, wantTypes: []string{"GitHubPullRequest"}},
+		"no provider matches":         {},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			rs := &manifest.ResourceSet{
+				Name: "envs", Namespace: "apps",
+				InputsFrom: []fluxopv1.InputProviderReference{{Name: "any"}},
+				ResourcesTemplate: `<<- $id := inputs.id | toString ->>
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: env-<< $id >>
+`,
+			}
+			resolve := func(fluxopv1.InputProviderReference, string) ([]*manifest.ResourceSetInputProvider, error) {
+				return tc.providers, nil
+			}
+			docs, err := resourceset.Render(rs, resolve)
+			if err != nil {
+				t.Fatalf("Render: %v", err)
+			}
+			var names []string
+			for _, doc := range docs {
+				names = append(names, doc["metadata"].(map[string]any)["name"].(string))
+			}
+			assert.Diff(t, names, tc.wantNames)
+			types, err := resourceset.OfflineProviderTypes(rs, resolve)
+			if err != nil {
+				t.Fatalf("OfflineProviderTypes: %v", err)
+			}
+			assert.Diff(t, types, tc.wantTypes)
+		})
+	}
+}
+
 // TestRender_ResourcesTemplate covers spec.resourcesTemplate (multi-doc
 // YAML string variant).
 func TestRender_ResourcesTemplate(t *testing.T) {

@@ -28,6 +28,7 @@ const (
 	KindGitRepository            = "GitRepository"
 	KindOCIRepository            = "OCIRepository"
 	KindExternalArtifact         = "ExternalArtifact"
+	KindArtifactGenerator        = "ArtifactGenerator"
 	KindBucket                   = "Bucket"
 	KindConfigMap                = "ConfigMap"
 	KindSecret                   = "Secret"

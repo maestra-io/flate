@@ -60,9 +60,9 @@ func parseResourceSet(doc map[string]any) (*ResourceSet, error) {
 // flate evaluates the Static type fully — defaultValues becomes a
 // single exported input set. Dynamic types (GitHubBranch, OCIArtifactTag,
 // ExternalService, …) require live API access to remote services and
-// are intentionally treated as empty providers here; the referencing
-// ResourceSet still renders, but with no contribution from that
-// provider.
+// are intentionally treated as empty providers here: they contribute
+// no input set, and a ResourceSet left with none renders zero objects,
+// as flux-operator does for providers that return nothing.
 type ResourceSetInputProvider struct {
 	Name      string `json:"name"                yaml:"name"`
 	Namespace string `json:"namespace,omitempty" yaml:"namespace,omitempty"`
