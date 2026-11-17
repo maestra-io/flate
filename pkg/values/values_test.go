@@ -478,6 +478,35 @@ func TestExpandPostBuildSubstituteReference(t *testing.T) {
 	}
 }
 
+// TestExpandPostBuildSubstituteReference_MissingReference locks
+// kustomize-controller's LoadVariables: a missing non-optional ConfigMap fails
+// the build, an optional one is skipped. A missing Secret stays advisory.
+func TestExpandPostBuildSubstituteReference_MissingReference(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		ref     manifest.SubstituteReference
+		wantErr bool
+	}{
+		{name: "required ConfigMap", ref: manifest.SubstituteReference{Kind: manifest.KindConfigMap, Name: "absent"}, wantErr: true},
+		{name: "optional ConfigMap", ref: manifest.SubstituteReference{Kind: manifest.KindConfigMap, Name: "absent", Optional: true}},
+		{name: "required Secret", ref: manifest.SubstituteReference{Kind: manifest.KindSecret, Name: "absent"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ks := &manifest.Kustomization{Name: "k", Namespace: "ns", PostBuildSubstituteFrom: []manifest.SubstituteReference{tc.ref}}
+			err := ExpandPostBuildSubstituteReference(ks, &SliceProvider{})
+			if tc.wantErr {
+				if !errors.Is(err, manifest.ErrObjectNotFound) || !strings.Contains(err.Error(), "ConfigMap/absent") {
+					t.Fatalf("err = %v, want ErrObjectNotFound naming ConfigMap/absent", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("err = %v, want nil", err)
+			}
+		})
+	}
+}
+
 // TestExpandPostBuildSubstituteReference_RejectsInvalidVarName locks
 // the upstream contract (fluxcd/pkg/kustomize varSubstitution): any
 // var name failing `^[_[:alpha:]][_[:alpha:][:digit:]]*$` fails the

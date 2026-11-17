@@ -269,6 +269,12 @@ func (c *Controller) collectDeps(ks *manifest.Kustomization) []manifest.Dependen
 		}
 		producers := c.index.DataProducers(depID)
 		if slices.Contains(producers, ks.Named()) {
+			// Ownership may be a path-prefix claim, not a render. A self-claimed
+			// ConfigMap with a raw file record is still a dependency: depwait
+			// promotes it from that file, so the consumer never reads it absent.
+			if ref.Kind == manifest.KindConfigMap && c.IsFileIndexed(depID) {
+				deps = append(deps, manifest.DependencyRef{NamedResource: depID})
+			}
 			continue
 		}
 		if ref.Kind == manifest.KindConfigMap {
