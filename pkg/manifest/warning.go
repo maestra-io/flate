@@ -53,6 +53,16 @@ const (
 	// out of the render. Render-global (Message names the Secret) so the many
 	// per-namespace KSes a cluster-config KS re-emits collapse to one line.
 	WarnUnresolvedSubstitution = "UnresolvedSubstitution"
+	// WarnUnrenderedArtifact: an ArtifactGenerator reads a source outside the
+	// rendered tree (or a skipped source), so the ExternalArtifact it names is
+	// not generated offline and every Kustomization / HelmRelease sourcing it
+	// is skipped. Resource is the ExternalArtifact.
+	WarnUnrenderedArtifact = "UnrenderedArtifact"
+	// WarnOfflineInputs: a ResourceSet's spec.inputsFrom providers read a
+	// remote API (pull requests, branches, tags) and export no inputs
+	// offline, so it renders zero objects, as flux-operator does for a
+	// provider that returns none. Resource is the ResourceSet.
+	WarnOfflineInputs = "OfflineInputs"
 )
 
 // CompareWarning orders warnings deterministically by category, then resource,

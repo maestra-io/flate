@@ -65,6 +65,7 @@ data: {key: fixed}
 `}
 				if selector {
 					rs.InputsFrom = []fluxopv1.InputProviderReference{{Kind: manifest.KindResourceSetInputProvider, Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"role": "db"}}}}
+					s.AddObject(staticDBProvider())
 				}
 				s.AddObject(rs)
 				d := dagDispatcher{&Orchestrator{store: s, rsc: c}}
@@ -157,6 +158,7 @@ kind: ConfigMap
 metadata: {name: output}
 data: {key: initial}
 `}
+	s.AddObject(staticDBProvider())
 	s.AddObject(rs)
 	d := dagDispatcher{&Orchestrator{store: s, rsc: c}}
 	d.Dispatch(t.Context(), rs.Named(), manifest.DrainNone)
@@ -212,4 +214,11 @@ data: {key: initial}
 	if !ok || cm.Data["key"] != "newest" {
 		t.Fatalf("latest concurrent content was lost: %+v", cm)
 	}
+}
+
+// staticDBProvider is the Static provider the fixtures' role=db selector
+// matches: providers that export no inputs render nothing.
+func staticDBProvider() *manifest.ResourceSetInputProvider {
+	return &manifest.ResourceSetInputProvider{Name: "db", Namespace: "ns", Labels: map[string]string{"role": "db"},
+		Type: fluxopv1.InputProviderStatic}
 }

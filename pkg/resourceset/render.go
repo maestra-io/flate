@@ -66,13 +66,11 @@ func Render(rs *manifest.ResourceSet, resolve ProviderResolver) ([]map[string]an
 	if err != nil {
 		return nil, fmt.Errorf("ResourceSet %s: %w", rs.Named().NamespacedName(), err)
 	}
-	// Under Permute, an empty input slice means the Cartesian product
-	// genuinely collapsed (every-provider-empty with includeEmpty=true,
-	// or no providers contributed). Render zero docs rather than
-	// falling through to renderResources' "no matrix → render once
-	// with nil" fallback, which only applies under Flatten where an
-	// empty matrix legitimately means "static resources, no inputs".
-	if len(inputs) == 0 && isPermute(rs) {
+	// An empty input slice renders zero docs when providers were asked for
+	// inputs (flux-operator reconciles an empty set when spec.inputsFrom
+	// yields none) or when a Permute product collapsed. Only a ResourceSet
+	// with neither renders its resources once with nil inputs.
+	if len(inputs) == 0 && (isPermute(rs) || len(rs.InputsFrom) > 0) {
 		return nil, nil
 	}
 

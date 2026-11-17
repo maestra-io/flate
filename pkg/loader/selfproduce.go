@@ -64,6 +64,13 @@ func (l *Loader) buildRenderers(repoRoot string, producers *manifest.ProducerInd
 			record(v)
 		}
 	}
+	// Generators loaded from the bootstrap path are read by no visited
+	// Kustomization; their edges still decide which consumers a change reaches.
+	for _, obj := range l.Store.ListObjects(manifest.KindArtifactGenerator) {
+		if raw, ok := obj.(*manifest.RawObject); ok && manifest.IsArtifactGenerator(raw) {
+			b.recordGenerator(raw, raw.Namespace)
+		}
+	}
 	l.addGenerated(generators)
 	for _, id := range slices.SortedFunc(maps.Keys(b.secrets), manifest.NamedResource.Compare) {
 		l.Store.AddObject(b.secrets[id])
@@ -500,6 +507,49 @@ func (b *selfProduceBuilder) recordProducer(raw *manifest.RawObject, baseNS, roo
 		if len(target.DeclaredKeys) > 0 && target.Kind == manifest.KindSecret {
 			b.synthesizePlaceholderSecret(target.NamedResource, target.DeclaredKeys)
 		}
+	}
+	if manifest.IsArtifactGenerator(raw) {
+		b.recordGenerator(raw, cmp.Or(baseNS, raw.Namespace, rootNS))
+	}
+}
+
+// recordGenerator indexes an ArtifactGenerator's content edges for
+// changed-only resolution: the generator reads its sources, and each
+// ExternalArtifact reads the generator, those sources and the paths its copy
+// operations select from Git sources. An invalid generator records nothing;
+// its render reports the error.
+func (b *selfProduceBuilder) recordGenerator(raw *manifest.RawObject, ns string) {
+	if ns == "" {
+		return
+	}
+	projected := *raw
+	projected.Namespace = ns
+	g, err := manifest.ParseArtifactGenerator(&projected)
+	if err != nil {
+		return
+	}
+	file := b.idx.Records[raw.Named()].File
+	refs := make([]manifest.NamedResource, 0, len(g.Sources))
+	git := map[string]bool{}
+	for _, s := range g.Sources {
+		refs = append(refs, s.Ref)
+		git[s.Alias] = s.Ref.Kind == manifest.KindGitRepository
+	}
+	r := b.idx.Records[g.ID]
+	r.File, r.Refs = cmp.Or(r.File, file), refs
+	b.idx.Records[g.ID] = r
+	for _, a := range g.Artifacts {
+		b.idx.Records[a.ID] = manifest.DiscoveryRecord{File: file, Refs: append([]manifest.NamedResource{g.ID}, refs...)}
+		var inputs []string
+		for _, op := range a.Copy {
+			if alias, root := op.SourceSelection(); git[alias] {
+				inputs = append(inputs, root)
+			}
+		}
+		if b.idx.Inputs == nil {
+			b.idx.Inputs = map[manifest.NamedResource][]string{}
+		}
+		b.idx.Inputs[a.ID] = inputs
 	}
 }
 

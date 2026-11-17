@@ -178,9 +178,9 @@ func TestReconcile_ChartSourceNotReady(t *testing.T) {
 	}
 }
 
-// A chartRef to an ExternalArtifact that an in-repo ArtifactGenerator
-// publishes in-cluster is soft-skipped offline; one with no producer fails on
-// the missing source.
+// A chartRef to an ExternalArtifact waits for its artifact; one that nothing
+// publishes fails on the missing source, even when an ArtifactGenerator
+// declares it (the source controller, not the release, builds it).
 func TestReconcile_ExternalArtifactChartRef(t *testing.T) {
 	for _, produced := range []bool{false, true} {
 		t.Run(fmt.Sprintf("produced=%t", produced), func(t *testing.T) {
@@ -198,11 +198,8 @@ func TestReconcile_ExternalArtifactChartRef(t *testing.T) {
 			}
 			st.AddObject(hr)
 			info := dispatchToFixpoint(t, c, st, hr.Named())
-			if produced && (info.Status != store.StatusReady || !store.IsSkipped(info) || !strings.Contains(info.Message, "ExternalArtifact/apps/app-chart")) {
-				t.Fatalf("status = %+v, want Ready with a skip naming the ExternalArtifact", info)
-			}
-			if !produced && info.Status != store.StatusFailed {
-				t.Fatalf("status = %+v, want Failed", info)
+			if info.Status != store.StatusFailed || !strings.Contains(info.Message, "ExternalArtifact/apps/app-chart: dependency not found") {
+				t.Fatalf("status = %+v, want Failed on the missing ExternalArtifact", info)
 			}
 		})
 	}

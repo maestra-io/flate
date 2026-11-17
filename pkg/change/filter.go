@@ -228,7 +228,7 @@ func (f *Filter) addRecursiveLocked(id manifest.NamedResource) []manifest.NamedR
 		if f.objs == nil {
 			continue
 		}
-		for _, dep := range transitiveDeps(f.objs, cur) {
+		for _, dep := range f.contentDeps(cur) {
 			if _, ok := f.primary[dep]; !ok {
 				stack = append(stack, dep)
 			}
@@ -241,6 +241,7 @@ func (f *Filter) addRecursiveLocked(id manifest.NamedResource) []manifest.NamedR
 			added = append(added, f.addDependencyOnlyRecursiveLocked(f.producersFor(dep)...)...)
 		}
 		added = append(added, f.addDependencyOnlyRecursiveLocked(f.sourceDependsOn(cur)...)...)
+		added = append(added, f.addDependencyOnlyRecursiveLocked(f.generatorRenderers(cur)...)...)
 	}
 	return added
 }
@@ -274,7 +275,8 @@ func (f *Filter) addDependencyOnlyRecursiveLocked(ids ...manifest.NamedResource)
 			continue
 		}
 		stack = append(stack, f.sourceDependsOn(cur)...)
-		for _, dep := range transitiveDeps(f.objs, cur) {
+		stack = append(stack, f.generatorRenderers(cur)...)
+		for _, dep := range f.contentDeps(cur) {
 			stack = append(stack, dep)
 			for _, producer := range f.producersFor(dep) {
 				if producer == cur {
@@ -428,8 +430,7 @@ func (f *Filter) resolve() {
 			if changed {
 				break
 			}
-			sr, ok := f.index.Lookup(src)
-			changed = ok && f.changes.Contains(sr.File)
+			changed = f.sourceChanged(src)
 		}
 		if !changed {
 			continue
@@ -484,6 +485,9 @@ func (f *Filter) resolve() {
 			}
 		}
 		for _, d := range f.sourceDependsOn(queue[head]) {
+			enqueueAncestor(d)
+		}
+		for _, d := range f.generatorRenderers(queue[head]) {
 			enqueueAncestor(d)
 		}
 		// Also walk the structural-parent chain of any Flux
@@ -642,6 +646,55 @@ func (f *Filter) sourceDependsOn(id manifest.NamedResource) []manifest.NamedReso
 		}
 	}
 	return out
+}
+
+// sourceChanged reports whether the change set touches src's own file or,
+// for a generated ExternalArtifact, its generator, the generator's sources or
+// the Git paths its copy operations select.
+func (f *Filter) sourceChanged(src manifest.NamedResource) bool {
+	sr, ok := f.index.Lookup(src)
+	if !ok {
+		return false
+	}
+	if f.changes.Contains(sr.File) {
+		return true
+	}
+	if src.Kind != manifest.KindExternalArtifact {
+		return false
+	}
+	for _, dir := range f.index.Inputs[src] {
+		if f.changes.Contains(dir) || f.changes.ContainsUnder(dir) {
+			return true
+		}
+	}
+	for _, in := range sr.Refs {
+		if r, ok := f.index.Lookup(in); ok && f.changes.Contains(r.File) {
+			return true
+		}
+	}
+	return false
+}
+
+// contentDeps returns id's Store-resolved content dependencies plus, for a
+// generated ExternalArtifact or an ArtifactGenerator (neither is a Store
+// object before render), the generator and source edges discovery indexed.
+func (f *Filter) contentDeps(id manifest.NamedResource) []manifest.NamedResource {
+	deps := transitiveDeps(f.objs, id)
+	if id.Kind == manifest.KindExternalArtifact || id.Kind == manifest.KindArtifactGenerator {
+		r, _ := f.index.Lookup(id)
+		deps = append(deps, r.Refs...)
+	}
+	return deps
+}
+
+// generatorRenderers returns the Kustomizations whose render emits the
+// ArtifactGenerator id: they must run for the generator to exist at all.
+func (f *Filter) generatorRenderers(id manifest.NamedResource) []manifest.NamedResource {
+	if id.Kind != manifest.KindArtifactGenerator {
+		return nil
+	}
+	r, _ := f.index.Lookup(id)
+	return r.DeclarationOwners
 }
 
 // ObjectLister is the Store surface filter resolution needs.

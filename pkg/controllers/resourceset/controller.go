@@ -9,6 +9,8 @@ package resourceset
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/home-operations/flate/pkg/controllers/base"
 	"github.com/home-operations/flate/pkg/manifest"
@@ -128,15 +130,33 @@ func (c *Controller) reconcile(ctx context.Context, rs *manifest.ResourceSet, le
 		return err
 	}
 
-	docs, err := resourceset.Render(rs, resourceset.StoreResolver(c.Store))
+	resolve := resourceset.StoreResolver(c.Store)
+	docs, err := resourceset.Render(rs, resolve)
 	if err != nil {
 		c.Store.UpdateStatus(id, store.StatusFailed, err.Error())
 		return err
+	}
+	if len(docs) == 0 {
+		c.warnOfflineInputs(rs, resolve)
 	}
 	c.emit(id, docs, true)
 
 	c.Store.SetArtifact(id, &store.ResourceSetArtifact{Manifests: docs, Fingerprint: fp})
 	return nil
+}
+
+// warnOfflineInputs reports a ResourceSet left without objects because its
+// remote-API providers export no inputs offline: the render matches a cluster
+// whose providers return nothing (no open pull request, no tag).
+func (c *Controller) warnOfflineInputs(rs *manifest.ResourceSet, resolve resourceset.ProviderResolver) {
+	types, err := resourceset.OfflineProviderTypes(rs, resolve)
+	if err != nil || len(types) == 0 {
+		return
+	}
+	c.Store.AddWarning(manifest.Warning{
+		Resource: rs.Named(), Category: manifest.WarnOfflineInputs,
+		Message: fmt.Sprintf("inputs of %s providers are not available offline, rendered 0 objects", strings.Join(types, ", ")),
+	})
 }
 
 // emit lands the RS-rendered children through the shared two-pass emit

@@ -313,7 +313,9 @@ func (c *Client) LoadChart(ctx context.Context, hr *manifest.HelmRelease) (Chart
 			return ChartLoadResult{}, fmt.Errorf("%w: source artifact has no identity", manifest.ErrInput)
 		}
 		switch hr.Chart.RepoKind {
-		case manifest.KindBucket, manifest.KindGitRepository, manifest.KindExternalArtifact:
+		case manifest.KindExternalArtifact:
+			location, err = externalArtifactChartPath(input)
+		case manifest.KindBucket, manifest.KindGitRepository:
 			location = path.Clean(hr.Chart.Name)
 		default:
 			location, err = chartPathInFS(input)
