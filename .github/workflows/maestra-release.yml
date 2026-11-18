@@ -15,6 +15,9 @@ jobs:
   release:
     name: build + publish
     runs-on: runs-on=${{ github.run_id }}/pool=build
+    permissions:
+      contents: write
+      id-token: write # setup-*-nora: the toolchain from nora
     steps:
       - uses: runs-on/action@17b59092eb37ebfdbb034460892887c09100eaa3 # v2.5.0
 
@@ -22,7 +25,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: maestra-io/github-actions/setup-go-nora@f40b5191253ae7e28c10836989a77255666141e4 # v1.104.0
         with:
           go-version-file: go.mod
 
