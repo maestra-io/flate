@@ -625,14 +625,21 @@ func (f *Filter) claimsFile(id manifest.NamedResource, file string) bool {
 	return false
 }
 
-// sourceDependsOn returns the dependsOn targets of Kustomization id that
-// rewrite a Flux source (see findSourceRewriters). dependsOn is otherwise
-// reconcile-ordering only, but such a target must render before id: its
-// raw file-loaded source (e.g. `url: oci://${CONTAINER_REGISTRY}/charts`)
-// is not what Flux applies, and id's HelmReleases would build their
-// HelmCharts from it.
+// sourceDependsOn returns what must render before Kustomization id for its
+// dependsOn to resolve in a changed-only run:
+//
+//   - targets that rewrite a Flux source (see findSourceRewriters). dependsOn
+//     is otherwise reconcile-ordering only, but such a target must render
+//     before id: its raw file-loaded source (e.g.
+//     `url: oci://${CONTAINER_REGISTRY}/charts`) is not what Flux applies, and
+//     id's HelmReleases would build their HelmCharts from it.
+//   - every ResourceSet when a target is not in the Store: it is emitted at
+//     render time, and an unkept ResourceSet never renders, so id would fail
+//     "dependency not found" (or be demoted to an orphan) and render nothing.
+//     The ResourceSets stay dependency-only: their children are not kept and
+//     short-circuit to Ready.
 func (f *Filter) sourceDependsOn(id manifest.NamedResource) []manifest.NamedResource {
-	if f.objs == nil || id.Kind != manifest.KindKustomization || len(f.sourceRewriters) == 0 {
+	if f.objs == nil || id.Kind != manifest.KindKustomization {
 		return nil
 	}
 	ks, ok := f.objs.GetObject(id).(*manifest.Kustomization)
@@ -640,9 +647,18 @@ func (f *Filter) sourceDependsOn(id manifest.NamedResource) []manifest.NamedReso
 		return nil
 	}
 	var out []manifest.NamedResource
+	missing := false
 	for _, d := range ks.DependsOn {
 		if _, ok := f.sourceRewriters[d.NamedResource]; ok {
 			out = append(out, d.NamedResource)
+		}
+		if f.objs.GetObject(d.NamedResource) == nil {
+			missing = true
+		}
+	}
+	if missing {
+		for _, rs := range f.objs.ListObjects(manifest.KindResourceSet) {
+			out = append(out, rs.Named())
 		}
 	}
 	return out
