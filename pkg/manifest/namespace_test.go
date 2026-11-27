@@ -78,13 +78,24 @@ func TestStampNamespaces_MixedSlice(t *testing.T) {
 
 func TestIsClusterScoped(t *testing.T) {
 	for kind, want := range map[string]bool{
-		"ClusterRole":              true,
-		"CustomResourceDefinition": true,
-		"ClusterSecretStore":       true, // ecosystem addition
-		"ClusterPolicy":            true, // ecosystem addition
-		"Deployment":               false,
-		"ServiceAccount":           false,
-		"ConfigMap":                false,
+		"ClusterRole":                      true,
+		"CustomResourceDefinition":         true,
+		"ClusterSecretStore":               true, // ecosystem addition
+		"ClusterPolicy":                    true, // ecosystem addition
+		"ValidatingAdmissionPolicy":        true,
+		"ValidatingAdmissionPolicyBinding": true,
+		"MutatingAdmissionPolicy":          true,
+		"MutatingAdmissionPolicyBinding":   true,
+		"ValidatingPolicy":                 true, // policies.kyverno.io
+		"MutatingPolicy":                   true,
+		"ImageValidatingPolicy":            true,
+		"GeneratingPolicy":                 true,
+		"DeletingPolicy":                   true,
+		"NamespacedValidatingPolicy":       false,
+		"PolicyException":                  false,
+		"Deployment":                       false,
+		"ServiceAccount":                   false,
+		"ConfigMap":                        false,
 	} {
 		if got := IsClusterScoped(map[string]any{"kind": kind}); got != want {
 			t.Errorf("IsClusterScoped(%s) = %v, want %v", kind, got, want)

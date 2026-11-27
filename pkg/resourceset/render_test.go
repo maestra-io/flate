@@ -296,7 +296,7 @@ func TestRender_NoInputsRendersOnce(t *testing.T) {
 // TestRender_DefaultsNamespace asserts that namespaced resources
 // without an explicit metadata.namespace inherit the ResourceSet's
 // own namespace, while cluster-scoped kinds (Namespace, ClusterRole,
-// CRD, etc.) stay namespace-less.
+// CRD, Kyverno CEL policies, etc.) stay namespace-less.
 func TestRender_DefaultsNamespace(t *testing.T) {
 	rs := &manifest.ResourceSet{
 		Name: "test", Namespace: "tenant-x",
@@ -310,6 +310,10 @@ func TestRender_DefaultsNamespace(t *testing.T) {
 			// Cluster-scoped — must stay namespace-less.
 			jsonTmpl(t, `{
 					"apiVersion": "v1", "kind": "Namespace",
+					"metadata": {"name": "<< inputs.name >>"}
+				}`),
+			jsonTmpl(t, `{
+					"apiVersion": "policies.kyverno.io/v1", "kind": "MutatingPolicy",
 					"metadata": {"name": "<< inputs.name >>"}
 				}`),
 		},
@@ -327,9 +331,9 @@ func TestRender_DefaultsNamespace(t *testing.T) {
 			if ns != "tenant-x" {
 				t.Errorf("ConfigMap namespace=%q want tenant-x", ns)
 			}
-		case "Namespace":
+		case "Namespace", "MutatingPolicy":
 			if ns != "" {
-				t.Errorf("Namespace got injected namespace=%q (cluster-scoped)", ns)
+				t.Errorf("%s got injected namespace=%q (cluster-scoped)", kind, ns)
 			}
 		}
 	}
