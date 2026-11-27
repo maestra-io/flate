@@ -7,21 +7,30 @@ package manifest
 // keying mirrors DropKinds; an offline renderer has no RESTMapper, so this is a
 // curated heuristic and unknown kinds default to namespaced.
 var clusterScopedKinds = map[string]struct{}{
-	"Namespace":                      {},
-	"Node":                           {},
-	"PersistentVolume":               {},
-	"StorageClass":                   {},
-	"PriorityClass":                  {},
-	"IngressClass":                   {},
-	"ClusterRole":                    {},
-	"ClusterRoleBinding":             {},
-	"CustomResourceDefinition":       {},
-	"MutatingWebhookConfiguration":   {},
-	"ValidatingWebhookConfiguration": {},
-	"APIService":                     {},
-	"ClusterIssuer":                  {}, // cert-manager.io
-	"ClusterSecretStore":             {}, // external-secrets.io
-	"ClusterPolicy":                  {}, // kyverno.io
+	"Namespace":                        {},
+	"Node":                             {},
+	"PersistentVolume":                 {},
+	"StorageClass":                     {},
+	"PriorityClass":                    {},
+	"IngressClass":                     {},
+	"ClusterRole":                      {},
+	"ClusterRoleBinding":               {},
+	"CustomResourceDefinition":         {},
+	"MutatingWebhookConfiguration":     {},
+	"ValidatingWebhookConfiguration":   {},
+	"ValidatingAdmissionPolicy":        {},
+	"ValidatingAdmissionPolicyBinding": {},
+	"MutatingAdmissionPolicy":          {},
+	"MutatingAdmissionPolicyBinding":   {},
+	"APIService":                       {},
+	"ClusterIssuer":                    {}, // cert-manager.io
+	"ClusterSecretStore":               {}, // external-secrets.io
+	"ClusterPolicy":                    {}, // kyverno.io
+	"ValidatingPolicy":                 {}, // policies.kyverno.io
+	"MutatingPolicy":                   {}, // policies.kyverno.io
+	"ImageValidatingPolicy":            {}, // policies.kyverno.io
+	"GeneratingPolicy":                 {}, // policies.kyverno.io
+	"DeletingPolicy":                   {}, // policies.kyverno.io
 }
 
 // IsClusterScoped reports whether doc's kind is a well-known cluster-scoped
